@@ -1,0 +1,1569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MAUDE Signal Explorer</title>
+<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30/">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231F6F6A'/><path d='M6 22h6l3-12 4 16 3-8h4' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #F2F5F5; --surface: #FFFFFF; --ink: #16232B; --muted: #56676E; --line: #D3DCDB;
+  --teal: #1F6F6A; --teal-soft: #DCEBE9; --amber: #B7791F; --amber-soft: #F7EAD3;
+  --death: #9B2C2C; --injury: #6E5A96; --malf: #1F6F6A; --other: #8FA3A8; --unk: #C3CED0;
+  --late1: #E2B35F; --late2: #A0621A;
+  --focus: #1F6F6A;
+  --font: "Public Sans", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0F1A1F; --surface: #15242B; --ink: #E3EBEB; --muted: #9AACB1; --line: #2B3D44;
+    --teal: #55B5AC; --teal-soft: #1C3A3B; --amber: #E2A94B; --amber-soft: #3A2E17;
+    --death: #E07B7B; --injury: #AE98D6; --malf: #55B5AC; --other: #7D9298; --unk: #4A5D63;
+    --late1: #C9984A; --late2: #E7B266;
+    --focus: #7FD0C7; color-scheme: dark;
+  }
+}
+*, *::before, *::after { box-sizing: inherit; }
+html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--font); font-feature-settings: "tnum" 0; }
+[hidden] { display: none !important; }
+a { color: var(--teal); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+button, input, select { font: inherit; color: inherit; }
+.num, .date { font-variant-numeric: tabular-nums; }
+
+/* Top bar */
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 2rem;
+  padding: 1rem clamp(1rem, 4vw, 2.5rem); border-bottom: 1px solid var(--line); background: var(--surface); }
+.brand { display: flex; align-items: center; gap: .85rem; }
+.mark { width: 2.4rem; height: 2.4rem; flex: none; }
+.bar h1 { margin: 0; font-size: 1.35rem; line-height: 1.2; font-weight: 700; letter-spacing: -.01em; }
+.lab { margin: .1rem 0 0; color: var(--muted); font-size: .9rem; }
+.meta { display: flex; flex-direction: column; align-items: flex-end; gap: .2rem; text-align: right; }
+.bar .sub { margin: 0; color: var(--muted); font-size: .88rem; }
+.methods { font-size: .92rem; }
+.methods summary { cursor: pointer; color: var(--teal); font-weight: 600; list-style-position: inside; }
+.methods[open] { width: 100%; }
+.methodsbody { text-align: left; max-width: 46rem; margin-left: auto; padding: .5rem 0 .25rem; }
+.methodsbody p { margin: .45rem 0; }
+@media (max-width: 760px) { .meta { align-items: flex-start; text-align: left; } .methodsbody { margin-left: 0; } }
+
+.pages { display: flex; gap: .25rem; align-self: flex-end; margin-bottom: -1rem; }
+.pages button { border: 0; background: none; padding: .55rem .9rem .7rem; cursor: pointer; font-weight: 600; font-size: .95rem;
+  color: var(--muted); border-bottom: 3px solid transparent; }
+.pages button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--teal); }
+.pages button:hover { color: var(--ink); }
+@media (max-width: 760px) { .pages { order: 3; width: 100%; margin-bottom: -1rem; overflow-x: auto; } }
+.badges { display: flex; flex-wrap: wrap; gap: .35rem; margin: .5rem 0 0; padding: 0; list-style: none; }
+.badges li { font-size: .8rem; padding: .15rem .55rem; border-radius: 4px; background: var(--teal-soft); color: var(--ink); }
+.altname { color: var(--muted); font-size: .9rem; margin: .2rem 0 0; }
+.tpage h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); margin: 0 0 .35rem; letter-spacing: -.015em; }
+.tpage .lead { color: var(--muted); max-width: 52rem; margin: 0 0 1rem; }
+.tpage h3 { font-size: 1.1rem; margin: 2rem 0 .5rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; }
+.tpage h3 .btn { font-size: .82rem; padding: .25rem .6rem; }
+.tpage select { padding: .45rem .55rem; border: 1.5px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 1rem; }
+.flow { list-style: none; padding: 0; margin: 0; display: grid; gap: .2rem; font-size: .92rem; max-width: 46rem; }
+.flow li { display: flex; justify-content: space-between; gap: 1rem; padding: .25rem 0; border-bottom: 1px dotted var(--line); }
+.flow li.off { color: var(--muted); }
+.flow li.total { font-weight: 700; border-bottom: 0; }
+table.stat th, table.stat td { text-align: right; }
+table.stat th:first-child, table.stat td:first-child { text-align: left; min-width: 14rem; }
+table.stat tr.sub td:first-child { padding-left: 1.5rem; }
+table.stat tr.head td { font-weight: 700; background: var(--bg); }
+table.stat tr.total td { font-weight: 700; }
+.legend-row { display: flex; flex-wrap: wrap; gap: .25rem 1rem; color: var(--muted); font-size: .85rem; margin-top: .25rem; }
+.foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: .5rem 2.5rem;
+  padding: 1.5rem clamp(1rem, 4vw, 2.5rem) calc(1.75rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: .86rem; }
+.foot p { margin: 0 0 .4rem; max-width: 40rem; }
+.foot strong { color: var(--ink); }
+
+/* Controls */
+.controls { display: flex; flex-wrap: wrap; gap: 1rem 1.75rem; align-items: end;
+  padding: .9rem clamp(1rem, 4vw, 2.5rem); background: var(--surface); border-bottom: 1px solid var(--line); }
+@media (min-width: 900px) { .controls { position: sticky; top: 0; z-index: 4; box-shadow: 0 1px 0 var(--line); } }
+.field-label, .controls legend { display: block; font-size: .85rem; color: var(--muted); margin-bottom: .3rem; padding: 0; }
+fieldset { border: 0; margin: 0; padding: 0; }
+.search { position: relative; flex: 1 1 22rem; max-width: 36rem; }
+.search input { width: 100%; padding: .6rem .8rem; border: 1.5px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 1.05rem; }
+.search input:focus { border-color: var(--teal); }
+#sugg { position: absolute; z-index: 5; left: 0; right: 0; margin: .25rem 0 0; padding: .25rem 0; list-style: none;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(10, 30, 35, .18); max-height: 22rem; overflow: auto; }
+#sugg li { display: grid; grid-template-columns: 3.5rem 1fr auto; gap: .75rem; padding: .45rem .8rem; cursor: pointer; }
+#sugg li[aria-selected="true"], #sugg li:hover { background: var(--teal-soft); }
+#sugg .pc { font-weight: 700; }
+#sugg .n { color: var(--muted); }
+.years input { width: 5.5rem; padding: .45rem .5rem; border: 1.5px solid var(--line); border-radius: 6px; background: var(--bg); }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chip { position: relative; display: inline-flex; align-items: center; gap: .45rem; padding: .35rem .8rem .35rem .65rem; border: 1.5px solid var(--line);
+  border-radius: 999px; cursor: pointer; user-select: none; font-size: .9rem; line-height: 1.2; color: var(--muted); background: var(--surface); }
+.chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.chip .dot { width: .7rem; height: .7rem; border-radius: 50%; background: var(--c); opacity: .35; }
+.chip:has(input:checked) { border-color: var(--c); color: var(--ink); }
+.chip:has(input:checked) .dot { opacity: 1; }
+.chip:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* Main */
+main { padding: 1.5rem clamp(1rem, 4vw, 2.5rem) 4rem; max-width: 92rem; }
+.landing h2 { font-size: 1.15rem; margin: 0 0 .25rem; }
+.landing p { color: var(--muted); max-width: 44rem; margin: 0 0 1rem; }
+.toplist { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: .5rem; padding: 0; margin: 0; list-style: none; }
+.toplist button { width: 100%; text-align: left; display: grid; grid-template-columns: 3.5rem 1fr; gap: .1rem .75rem; padding: .6rem .8rem;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.toplist button:hover { border-color: var(--teal); }
+.toplist .pc { font-weight: 700; grid-row: span 2; font-size: 1.1rem; }
+.toplist .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toplist .n { color: var(--muted); font-size: .88rem; }
+
+.phead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem 1.25rem; }
+.phead h2 { margin: 0; font-size: clamp(1.4rem, 3vw, 2rem); letter-spacing: -.015em; }
+.phead h2 .code { color: var(--teal); }
+.facts { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; margin: .4rem 0 1rem; padding: 0; list-style: none; color: var(--muted); }
+.facts strong { color: var(--ink); }
+.facts .death strong { color: var(--death); }
+
+figure { margin: 0; }
+.chart { width: 100%; height: auto; display: block; }
+.chart text { fill: var(--muted); font-size: 12px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+figcaption { color: var(--muted); font-size: .85rem; margin-top: .25rem; display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+.key { display: inline-flex; align-items: center; gap: .35rem; }
+.key i { width: .75rem; height: .75rem; border-radius: 2px; background: var(--c); display: inline-block; }
+
+.tabs { display: flex; gap: 0; margin: 1.75rem 0 0; border-bottom: 2px solid var(--line); }
+.tabs button { padding: .55rem 1rem; border: 0; background: none; cursor: pointer; font-weight: 700; color: var(--muted);
+  border-bottom: 3px solid transparent; margin-bottom: -2px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--teal); }
+.tools { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: center; padding: .9rem 0; }
+.tools input[type=search], .tools input[type=number], .tools select { padding: .4rem .55rem; border: 1.5px solid var(--line); border-radius: 6px; background: var(--surface); }
+.tools input[type=number] { width: 4.5rem; }
+.tools label { font-size: .9rem; color: var(--muted); display: inline-flex; align-items: center; gap: .4rem; }
+.tools .count { margin-left: auto; color: var(--muted); font-size: .9rem; }
+.btn { padding: .45rem .9rem; border: 1.5px solid var(--teal); color: var(--teal); background: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: .92rem; }
+.btn:hover { background: var(--teal-soft); }
+
+/* Signal table */
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { padding: .5rem .65rem; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: min(16rem, 55vw); }
+table.list th, table.list td { text-align: left; }
+table.list td.num, table.list th.num { text-align: right; }
+thead th { background: var(--surface); font-size: .8rem; color: var(--muted); font-weight: 600; vertical-align: bottom; }
+thead th button { all: unset; cursor: pointer; }
+thead th button:focus-visible { outline: 3px solid var(--focus); }
+thead th[aria-sort] button { color: var(--ink); }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--teal-soft); }
+tbody tr.sel { background: var(--teal-soft); box-shadow: inset 4px 0 0 var(--teal); }
+tbody tr.sig td:first-child { box-shadow: inset 4px 0 0 var(--amber); }
+tbody tr.sel.sig td:first-child { box-shadow: inset 4px 0 0 var(--teal); }
+tbody tr.few { color: var(--muted); }
+.term { font-weight: 600; }
+.codeinfo { color: var(--muted); font-size: .82rem; margin-left: .35rem; font-weight: 400; }
+.tag { display: inline-block; font-size: .75rem; padding: 0 .4rem; border-radius: 4px; margin-left: .35rem; background: var(--line); color: var(--ink); font-weight: 400; }
+.flag { color: var(--amber); font-weight: 700; }
+td.forest, th.forest { padding-top: .2rem; padding-bottom: .2rem; text-align: center; }
+.forest svg { display: block; }
+.forest .ref { stroke: var(--muted); stroke-dasharray: 2 2; }
+.forest .ci { stroke: var(--other); stroke-width: 2; }
+.forest .pt { fill: var(--other); }
+tr.sig .forest .ci { stroke: var(--amber); }
+tr.sig .forest .pt { fill: var(--amber); }
+.forest .tick { fill: var(--muted); font-size: 10px; font-family: var(--font); }
+.forest .axis { stroke: var(--muted); stroke-width: 1; }
+.empty { padding: 2rem; color: var(--muted); text-align: center; }
+
+/* View switch and cohort builder */
+.views { display: inline-flex; margin: 1.5rem 0 0; border: 1.5px solid var(--line); border-radius: 8px; padding: 3px; background: var(--surface); }
+.views button { border: 0; background: none; padding: .45rem 1.1rem; border-radius: 6px; cursor: pointer; font-weight: 700; color: var(--muted); }
+.views button[aria-selected="true"] { background: var(--teal); color: var(--surface); }
+.cohort { margin-top: 1.25rem; padding: 1.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.group { border: 0; margin: 0; padding: 0 0 1.1rem; }
+.group + .group { border-top: 1px solid var(--line); padding-top: 1rem; }
+.group legend { font-weight: 700; font-size: .95rem; padding: 0; margin-bottom: .6rem; color: var(--ink); }
+.row { display: flex; flex-wrap: wrap; gap: .9rem 1.25rem; align-items: flex-end; }
+.row + .row { margin-top: .9rem; }
+.f { display: flex; flex-direction: column; gap: .3rem; font-size: .86rem; color: var(--muted); flex: 1 1 11rem; min-width: 0; }
+.f.grow { flex: 3 1 18rem; }
+.f.date { flex: 0 1 11rem; }
+.flab { font-size: .86rem; color: var(--muted); }
+.f input[type=text], .f input[type=date], .f input[type=month], .f input[type=number] { padding: .45rem .55rem; border: 1.5px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 1rem; }
+.f input:disabled { opacity: .55; }
+.check { display: inline-flex; align-items: center; gap: .5rem; color: var(--ink); font-size: .92rem; padding-bottom: .45rem; }
+.hint { font-size: .8rem; }
+.actions { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; margin-top: 1rem; }
+.actions label { font-size: .9rem; color: var(--muted); display: inline-flex; align-items: center; gap: .4rem; }
+.actions input[type=number] { width: 5.5rem; padding: .4rem .5rem; border: 1.5px solid var(--line); border-radius: 6px; background: var(--surface); }
+.btn.primary { background: var(--teal); color: var(--surface); }
+.btn.primary:hover { background: var(--teal); filter: brightness(1.1); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+#cResult { margin-top: 1.5rem; }
+#cResult td.txt, .reports td.txt { white-space: normal; max-width: 22rem; }
+.dl { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; padding: .75rem 0; }
+.dl .lbl { font-weight: 600; margin-right: .25rem; }
+.dup { color: var(--amber); font-weight: 700; }
+
+/* Report panel */
+.drawer { margin-top: 1.5rem; padding: 1.25rem; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--teal); border-radius: 6px; }
+.drawer h3 { margin: 0; font-size: 1.25rem; }
+.drawer .close { float: right; }
+.split { display: grid; grid-template-columns: fit-content(30rem) minmax(0, 1fr); gap: 1.5rem 2rem; margin-top: 1rem; align-items: start; }
+.split > * { min-width: 0; }
+@media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+.two { border-collapse: collapse; font-size: .9rem; width: auto; }
+.two th, .two td { border: 1px solid var(--line); padding: .4rem .65rem; text-align: right; white-space: nowrap; min-width: 0 !important; }
+.two th { color: var(--muted); font-weight: 400; text-align: left; }
+.two td.a { background: var(--amber-soft); font-weight: 700; }
+.stats { list-style: none; padding: 0; margin: .75rem 0 0; font-size: .92rem; }
+.stats li { display: flex; justify-content: space-between; gap: 1rem; padding: .15rem 0; border-bottom: 1px dotted var(--line); }
+.reports { margin-top: 1rem; }
+.reports table { font-size: .88rem; }
+.reports td:first-child, .reports th:first-child { min-width: 0; }
+.reports td.txt { text-align: left; white-space: normal; }
+.note { color: var(--muted); font-size: .85rem; }
+#status { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); margin: 0;
+  background: var(--ink); color: var(--bg); padding: .5rem 1rem; border-radius: 6px; font-size: .9rem; max-width: 90vw; }
+#status:empty { display: none; }
+.error { padding: 1.25rem; border: 1.5px solid var(--death); border-radius: 6px; background: var(--surface); max-width: 48rem; }
+.error h2 { margin: 0 0 .5rem; color: var(--death); font-size: 1.1rem; }
+@media (prefers-reduced-motion: no-preference) { .drawer { animation: open .18s ease-out; } }
+@keyframes open { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--teal)"/>
+      <path d="M5 21h6l3-11 4 15 3-8h6" fill="none" stroke="var(--surface)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div>
+      <h1>MAUDE Signal Explorer</h1>
+      <p class="lab">Muanda Lab, Western University</p>
+    </div>
+  </div>
+  <nav class="pages" aria-label="Pages">
+    <button data-page="device" aria-current="page">Device signals and reports</button>
+    <button data-page="timely">Reporting timeliness</button>
+  </nav>
+  <div class="meta">
+  <p class="sub" id="dataInfo">Loading the database engine…</p>
+  <details class="methods">
+    <summary>Methods and limits</summary>
+    <div class="methodsbody">
+      <p><strong>Source.</strong> FDA MAUDE medical device reports (download files), cleaned and checked by the pipeline. Counts are distinct reports. Years are years received by the FDA.</p>
+      <p><strong>2×2 table.</strong> For a device type (product code) and a problem code: <em>a</em> = reports with both, <em>b</em> = reports with the device type and another problem code, <em>c</em> = reports with the problem code and another device type, <em>d</em> = all other reports. Only reports with at least one problem code of the selected kind (device or patient) are in the table.</p>
+      <p><strong>Statistics.</strong> ROR with 95% CI (log method). PRR with χ² (Yates). IC with IC025 (BCPNN, simplified formula: IC025 = IC − 3.3(a+0.5)<sup>−½</sup> − 2(a+0.5)<sup>−3/2</sup>). If a cell is 0, the ROR and PRR use a 0.5 correction in each cell.</p>
+      <p><strong>Limits.</strong> MAUDE is a passive reporting system. A report does not show that the device caused the event. The data cannot give incidence rates. One event can have more than one report (manufacturer, user facility, voluntary). Reporting changes with recalls, litigation, summary reporting programs and code changes (for example, the code revisions of 2009 and 2019–2021). A signal is a hypothesis for review, not a conclusion.</p>
+    </div>
+  </details>
+  </div>
+</header>
+
+<section class="controls" id="deviceControls" aria-label="Selection">
+  <div class="search">
+    <label for="q" class="field-label">Device type</label>
+    <input id="q" type="text" placeholder="Product code or device name, for example FRN or infusion pump" autocomplete="off"
+           role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sugg" disabled>
+    <ul id="sugg" role="listbox" hidden></ul>
+  </div>
+  <fieldset class="years">
+    <legend>Years received</legend>
+    <input id="y0" type="number" aria-label="First year" inputmode="numeric"> to
+    <input id="y1" type="number" aria-label="Last year" inputmode="numeric">
+  </fieldset>
+  <fieldset class="events">
+    <legend>Event types</legend>
+    <div class="chips" id="evChips"></div>
+  </fieldset>
+</section>
+
+<main id="main">
+  <section id="landing" class="landing" hidden>
+    <h2>Select a device type</h2>
+    <p>Type a product code or a device name above, or select one of the device types with the most reports. Then the explorer screens all device problems and patient problems of that device type for disproportionality.</p>
+    <ul class="toplist" id="toplist"></ul>
+  </section>
+
+  <section id="product" hidden>
+    <div class="phead"><h2 id="pTitle"></h2></div>
+    <p class="altname" id="pAlt" hidden></p>
+    <ul class="badges" id="pBadges"></ul>
+    <ul class="facts num" id="pFacts"></ul>
+    <figure>
+      <svg class="chart" id="trend" viewBox="0 0 900 170" role="img" aria-label="Reports per year"></svg>
+      <figcaption id="trendKey"></figcaption>
+    </figure>
+
+    <div class="views" role="tablist" aria-label="View">
+      <button role="tab" id="view-signals" data-view="signals" aria-selected="true">Signals</button>
+      <button role="tab" id="view-reports" data-view="reports" aria-selected="false">Reports</button>
+    </div>
+
+    <div id="signalsView">
+    <div class="tabs" role="tablist" aria-label="Problem kind">
+      <button role="tab" id="tab-dp" aria-selected="true" data-kind="dp">Device problems</button>
+      <button role="tab" id="tab-pp" aria-selected="false" data-kind="pp">Patient problems</button>
+    </div>
+    <div class="tools">
+      <input type="search" id="filt" placeholder="Filter problems" aria-label="Filter problems">
+      <label>Signal rule
+        <select id="crit"></select>
+      </label>
+      <label>Minimum reports <input type="number" id="minA" min="1" value="1"></label>
+      <label><input type="checkbox" id="onlySig"> Signals only</label>
+      <button class="btn" id="export">Download CSV</button>
+      <span class="count num" id="count"></span>
+    </div>
+    <div class="tablewrap">
+      <table id="res" aria-describedby="count">
+        <thead><tr id="resHead"></tr></thead>
+        <tbody id="resBody"></tbody>
+      </table>
+    </div>
+
+    <section class="drawer" id="drawer" hidden aria-live="polite"></section>
+    </div>
+
+    <div id="reportsView" hidden>
+      <form id="cohortForm" class="cohort" novalidate>
+        <fieldset class="group"><legend>Reports</legend>
+          <div class="row">
+            <label class="f grow">Product codes<input id="cPcs" type="text" autocomplete="off" spellcheck="false">
+              <span class="hint">One or more codes, separated by commas. The event types at the top also apply.</span></label>
+            <label class="f date">Received from<input id="cD0" type="date"></label>
+            <label class="f date">Received to<input id="cD1" type="date"></label>
+          </div>
+          <div class="row">
+            <div class="f grow"><span class="flab">Report source</span><div class="chips" id="cSrc"></div></div>
+            <label class="check"><input type="checkbox" id="cInitial"> Initial reports only</label>
+            <label class="check"><input type="checkbox" id="cNoSummary"> Leave out summary reports</label>
+          </div>
+        </fieldset>
+        <fieldset class="group"><legend>Device and problem</legend>
+          <div class="row">
+            <label class="f">Brand contains<input id="cBrand" type="text" autocomplete="off"></label>
+            <label class="f">Manufacturer contains<input id="cMfr" type="text" autocomplete="off"></label>
+            <label class="f">Device problem code<input id="cDpc" type="number" min="1" inputmode="numeric"></label>
+            <label class="f">Patient problem code<input id="cPpc" type="number" min="1" inputmode="numeric"></label>
+          </div>
+        </fieldset>
+        <fieldset class="group"><legend>Narrative text</legend>
+          <div class="row">
+            <label class="f grow">Contains any of<input id="cIncl" type="text" autocomplete="off" placeholder="for example: expired, decedent, time of death"></label>
+            <label class="f grow">Leave out narratives that contain any of<input id="cExcl" type="text" autocomplete="off" placeholder="for example: baclofen, treprostinil"></label>
+          </div>
+        </fieldset>
+        <div class="actions"><button class="btn primary" type="submit">Find reports</button><p class="note" id="cNote" style="margin:0"></p></div>
+      </form>
+      <section id="cResult" hidden aria-live="polite">
+        <ul class="facts num" id="cFacts"></ul>
+        <div class="dl">
+          <span class="lbl">Download</span>
+          <button class="btn" id="cCsv" type="button">Reports (CSV)</button>
+          <button class="btn" id="cCsvText" type="button">Reports with narratives (CSV)</button>
+          <label class="actions" style="margin:0">Random sample of <input type="number" id="cN" min="1" max="20000" value="200"> reports</label>
+          <button class="btn" id="cSample" type="button">Sample with narratives (CSV)</button>
+          <button class="btn" id="cDef" type="button">Cohort definition (JSON)</button>
+        </div>
+        <p class="note" id="cExportNote"></p>
+        <div class="tablewrap"><table class="list"><thead><tr id="cHead"></tr></thead><tbody id="cBody"></tbody></table></div>
+      </section>
+    </div>
+  </section>
+
+  <section id="timelyPage" class="tpage" hidden>
+    <h2>Reporting timeliness</h2>
+    <p class="lead">How long manufacturers took to send their reports to the FDA. The report time is the date the FDA received a report minus the date the manufacturer became aware of the event (field G4 of Form 3500A). FDA regulation requires most manufacturer reports within 30 days. The method follows Everhart et al., BMJ 2025;388:e081518.</p>
+    <form id="tlForm" class="cohort" novalidate>
+      <fieldset class="group"><legend>Reports</legend>
+        <div class="row">
+          <label class="f date">Received from<input id="tM0" type="month"></label>
+          <label class="f date">Received to<input id="tM1" type="month"></label>
+          <div class="f grow"><span class="flab">Report source</span><div class="chips" id="tSrc"></div></div>
+        </div>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="tNoSummary" checked> Leave out summary reports</label>
+          <label class="check"><input type="checkbox" id="tNoOther" checked> Leave out event type Other or missing</label>
+          <label class="check"><input type="checkbox" id="tNeedMfr" checked> Leave out reports without a manufacturer name</label>
+          <label class="check"><input type="checkbox" id="tNeedClass" checked> Leave out reports without a device class</label>
+          <label class="check"><input type="checkbox" id="tInitial"> Only reports whose type of report includes "initial"</label>
+        </div>
+      </fieldset>
+      <fieldset class="group"><legend>Devices (optional)</legend>
+        <div class="row">
+          <label class="f grow">Product codes<input id="tPcs" type="text" autocomplete="off" spellcheck="false" placeholder="All product codes"></label>
+          <div class="f"><span class="flab">Device class</span><div class="chips" id="tCls"></div></div>
+          <label class="f">Medical specialty<select id="tSpec"><option value="">All specialties</option></select></label>
+        </div>
+      </fieldset>
+      <div class="actions">
+        <button class="btn primary" type="submit">Calculate</button>
+        <button class="btn" type="button" id="tPreset">Use the setup of Everhart et al. (2025)</button>
+        <p class="note" id="tNote" style="margin:0"></p>
+      </div>
+    </form>
+    <div id="tlResult" hidden aria-live="polite">
+      <h3>Study sample</h3>
+      <ul class="flow num" id="tFlow"></ul>
+      <h3>Report times by event type <button class="btn" type="button" data-csv="t1">CSV</button></h3>
+      <div class="tablewrap"><table class="stat num" id="tT1"></table></div>
+      <p class="note">Mean, SD, median and IQR use reports with a report time of 0 days or more. Missing or invalid: no awareness date, or an awareness date after the FDA received the report.</p>
+      <h3>Reports per month received</h3>
+      <figure><svg class="chart" id="tChart" viewBox="0 0 900 180" role="img" aria-label="Reports per month by report time"></svg>
+        <figcaption class="legend-row" id="tChartKey"></figcaption></figure>
+      <h3>Late reports by device characteristic <button class="btn" type="button" data-csv="t4">CSV</button></h3>
+      <div class="tablewrap"><table class="stat num" id="tT4"></table></div>
+      <p class="note">Late: more than 30 days. Only reports with a report time of 0 days or more. 95% CI: Wilson score interval. Device characteristics come from the FDA product classification file of the device's product code (first device of the report).</p>
+      <h3>Manufacturers with the most late reports <button class="btn" type="button" data-csv="t2">CSV</button>
+        <label class="check" style="font-size:.88rem;font-weight:400;padding:0"><input type="checkbox" id="tByGroup" checked> Group divisions and acquired companies</label></h3>
+      <div class="tablewrap"><table class="stat num" id="tT2"></table></div>
+      <p class="note" id="tT2note"></p>
+      <h3>Devices with the most late reports <button class="btn" type="button" data-csv="t3">CSV</button></h3>
+      <div class="tablewrap"><table class="stat num" id="tT3"></table></div>
+      <p class="note">A device is a combination of brand name, generic name and manufacturer, as in Everhart et al.</p>
+      <div class="dl"><span class="lbl">Download</span><button class="btn" type="button" id="tDef">Analysis definition (JSON)</button></div>
+    </div>
+  </section>
+</main>
+<footer class="foot">
+  <div>
+    <p><strong>MAUDE Signal Explorer</strong>, version 0.4, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
+    <p>Department of Physiology and Pharmacology, Schulich School of Medicine &amp; Dentistry, Western University, London, Ontario, Canada.</p>
+  </div>
+  <div>
+    <p>Data: U.S. Food and Drug Administration, MAUDE download files (public data). This tool is not affiliated with or endorsed by the FDA. A report in MAUDE does not prove that a device caused an event.</p>
+    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.4) [software]. Muanda Lab, Western University; 2026.</p>
+  </div>
+</footer>
+<p id="status" role="status" aria-live="polite"></p>
+
+<script type="module">
+/* ------------------------------------------------------------------ settings */
+const DUCKDB_VERSION = "1.32.0";
+const params = new URLSearchParams(location.search);
+// Folder with site/manifest.json: ?data=... in the address, else the maude-data meta tag (set by deploy.py), else this folder.
+const BASE = new URL(params.get("data") || document.querySelector('meta[name="maude-data"]')?.content || "./", location.href).href;
+
+/* CORE START: pure functions and queries (tested outside the browser) */
+const EVENTS = [
+  { id: "D", label: "Death", color: "var(--death)" },
+  { id: "IN", label: "Injury", color: "var(--injury)" },
+  { id: "M", label: "Malfunction", color: "var(--malf)" },
+  { id: "O", label: "Other", color: "var(--other)" },
+  { id: "U", label: "No answer", color: "var(--unk)" },
+];
+const EVENT_IDS = EVENTS.map(e => e.id);
+const KIND = { dp: { type: "device", label: "Device problems" }, pp: { type: "patient", label: "Patient problems" } };
+
+const CRITERIA = {
+  ror: { label: "ROR lower 95% limit above 1, 3+ reports", test: r => r.a >= 3 && r.rorLo > 1 },
+  prr: { label: "PRR 2+, χ² 4+, 3+ reports (Evans)", test: r => r.a >= 3 && r.prr >= 2 && r.chi2 >= 4 },
+  ic: { label: "IC025 above 0", test: r => r.ic025 > 0 },
+};
+
+function safePc(pc) { return /^[A-Z0-9]{3}$/.test(pc || "") ? pc : null; }
+
+function filterSql(f) {
+  const ev = f.ev.filter(e => EVENT_IDS.includes(e));
+  return `y BETWEEN ${f.y0 | 0} AND ${f.y1 | 0} AND ev IN (${(ev.length ? ev : ["-"]).map(e => `'${e}'`).join(",")})`;
+}
+
+function mapEvent(raw) {
+  if (raw === "M") return "M";
+  if (raw === "IN" || raw === "IL" || raw === "IJ") return "IN";
+  if (raw === "D") return "D";
+  if (raw === "O") return "O";
+  return "U";
+}
+
+function disp(a, nP, nE, N) {
+  const b = nP - a, c = nE - a, d = N - nP - nE + a;
+  const expected = N > 0 ? nP * nE / N : 0;
+  const z = (a > 0 && b > 0 && c > 0 && d > 0) ? 0 : 0.5;
+  const A = a + z, B = b + z, C = c + z, D = d + z;
+  const ror = (A * D) / (B * C);
+  const se = Math.sqrt(1 / A + 1 / B + 1 / C + 1 / D);
+  const prr = (A / (A + B)) / (C / (C + D));
+  const sp = Math.sqrt(Math.max(0, 1 / A - 1 / (A + B) + 1 / C - 1 / (C + D)));
+  const num = Math.max(0, Math.abs(a * d - b * c) - N / 2);
+  const den = (a + b) * (c + d) * (a + c) * (b + d);
+  const ic = Math.log2((a + 0.5) / (expected + 0.5));
+  return {
+    a, b, c, d, expected, ror,
+    rorLo: Math.exp(Math.log(ror) - 1.96 * se), rorHi: Math.exp(Math.log(ror) + 1.96 * se),
+    prr, prrLo: Math.exp(Math.log(prr) - 1.96 * sp), prrHi: Math.exp(Math.log(prr) + 1.96 * sp),
+    chi2: den > 0 ? N * num * num / den : 0,
+    ic, ic025: ic - 3.3 * Math.pow(a + 0.5, -0.5) - 2 * Math.pow(a + 0.5, -1.5),
+  };
+}
+
+async function signalTable(q, f, pc, kind) {
+  const F = filterSql(f);
+  const rows = await q(`
+    WITH a AS (SELECT c, sum(n)::DOUBLE AS a FROM pair_${kind} WHERE pc = '${pc}' AND ${F} GROUP BY c),
+         e AS (SELECT c, sum(n)::DOUBLE AS ne FROM code_${kind} WHERE c IN (SELECT c FROM a) AND ${F} GROUP BY c)
+    SELECT a.c::INTEGER AS code, a.a, e.ne, d.TERM AS term, d.STATUS AS status
+    FROM a JOIN e USING (c) LEFT JOIN dict d ON d.CODE = a.c AND d.CODE_TYPE = '${KIND[kind].type}'`);
+  const [{ np }] = await q(`SELECT coalesce(sum(n), 0)::DOUBLE AS np FROM pc_${kind} WHERE pc = '${pc}' AND ${F}`);
+  const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM totals WHERE ${F}`);
+  return { nP: np, N: nn, rows: rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) })) };
+}
+
+async function productFacts(q, f, pc) {
+  const F = filterSql(f);
+  const rows = await q(`SELECT ev, sum(n)::DOUBLE AS n FROM pc_all WHERE pc = '${pc}' AND ${F} GROUP BY ev`);
+  const by = Object.fromEntries(rows.map(r => [r.ev, r.n]));
+  return { total: rows.reduce((s, r) => s + r.n, 0), by };
+}
+
+async function productTrend(q, f, pc) {
+  const F = filterSql(f);
+  return q(`SELECT y::INTEGER AS y, ev, sum(n)::DOUBLE AS n FROM pc_all WHERE pc = '${pc}' AND ${F} GROUP BY ALL ORDER BY y`);
+}
+
+async function pairTrend(q, f, pc, kind, code) {
+  const F = filterSql(f);
+  return q(`SELECT y::INTEGER AS y, ev, sum(n)::DOUBLE AS n FROM pair_${kind}
+            WHERE pc = '${pc}' AND c = ${code | 0} AND ${F} GROUP BY ALL ORDER BY y`);
+}
+
+async function reportList(q, f, pc, kind, code, cols, want = 100) {
+  const out = [];
+  let offset = 0, scanned = 0;
+  const hasSrc = cols.master.includes("REPORT_SOURCE_CODE");
+  const bad = cols.master.includes("DQ_DATE_RECEIVED_INVALID");
+  for (let i = 0; i < 10 && out.length < want; i++) {
+    const keys = (await q(`SELECT k::DOUBLE AS k FROM idx_${kind} WHERE pc = '${pc}' AND c = ${code | 0}
+                           ORDER BY k DESC LIMIT 500 OFFSET ${offset}`)).map(r => r.k);
+    if (!keys.length) break;
+    offset += keys.length; scanned += keys.length;
+    const ms = await q(`SELECT MDR_REPORT_KEY::DOUBLE AS k, CAST(DATE_RECEIVED AS VARCHAR) AS received, EVENT_TYPE AS ev
+                        ${hasSrc ? ", REPORT_SOURCE_CODE AS src" : ""}${bad ? ", coalesce(DQ_DATE_RECEIVED_INVALID, false) AS bad" : ""}
+                        FROM master WHERE MDR_REPORT_KEY BETWEEN ${Math.min(...keys)} AND ${Math.max(...keys)}
+                        AND MDR_REPORT_KEY IN (${keys.join(",")})`);
+    for (const m of ms.sort((x, y) => y.k - x.k)) {
+      const yr = m.received && !m.bad ? +m.received.slice(0, 4) : NaN;
+      const ev = mapEvent(m.ev);
+      if (yr >= f.y0 && yr <= f.y1 && f.ev.includes(ev)) out.push({ ...m, ev, year: yr });
+      if (out.length >= want) break;
+    }
+  }
+  if (out.length) {
+    const want2 = ["BRAND_NAME", "MANUFACTURER_D_NAME"].filter(c => cols.device.includes(c));
+    if (want2.length) {
+      const ds = await q(`SELECT MDR_REPORT_KEY::DOUBLE AS k, ${want2.join(", ")} FROM device
+                          WHERE MDR_REPORT_KEY BETWEEN ${Math.min(...out.map(r => r.k))} AND ${Math.max(...out.map(r => r.k))}
+                          AND MDR_REPORT_KEY IN (${out.map(r => r.k).join(",")}) AND upper(trim(DEVICE_REPORT_PRODUCT_CODE)) = '${pc}'`);
+      const byK = new Map();
+      for (const d of ds) {
+        const e = byK.get(d.k) || { brand: new Set(), mfr: new Set() };
+        if (d.BRAND_NAME) e.brand.add(d.BRAND_NAME);
+        if (d.MANUFACTURER_D_NAME) e.mfr.add(d.MANUFACTURER_D_NAME);
+        byK.set(d.k, e);
+      }
+      for (const r of out) {
+        const e = byK.get(r.k);
+        r.brand = e ? [...e.brand].join("; ") : "";
+        r.mfr = e ? [...e.mfr].join("; ") : "";
+      }
+    }
+  }
+  return { reports: out, scanned, more: scanned >= offset && offset % 500 === 0 && out.length >= want };
+}
+
+const SOURCES = [
+  { id: "M", label: "Manufacturer" }, { id: "U", label: "User facility" },
+  { id: "D", label: "Distributor" }, { id: "P", label: "Voluntary" },
+];
+const MAX_TEXT_EXPORT = 20000;
+const strLit = s => "'" + String(s).replace(/'/g, "''") + "'";
+const termList = s => [...new Set(String(s || "").split(/[,;\n]/).map(t => t.trim().toLowerCase()).filter(t => t.length >= 2))].slice(0, 25);
+const pcList = s => [...new Set(String(s || "").toUpperCase().split(/[\s,;]+/).filter(p => /^[A-Z0-9]{3}$/.test(p)))].slice(0, 25);
+const isoDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || "") ? s : null;
+
+/* c = { pcs, d0, d1, ev, src, initial, noSummary, brand, mfr, dpc, ppc, incl, excl }; S = report table schema */
+function cohortWhere(c, S, hasText) {
+  const R = new Set(S.map(x => x[0]));
+  const ev = c.ev.filter(e => EVENT_IDS.includes(e));
+  const w = [`product_code IN (${(c.pcs.length ? c.pcs : ["---"]).map(strLit).join(",")})`,
+             `event IN (${(ev.length ? ev : ["-"]).map(strLit).join(",")})`];
+  if (isoDate(c.d0)) w.push(`date_received >= DATE ${strLit(c.d0)}`);
+  if (isoDate(c.d1)) w.push(`date_received <= DATE ${strLit(c.d1)}`);
+  const src = c.src.filter(x => SOURCES.some(s => s.id === x));
+  if (R.has("report_source") && src.length < SOURCES.length) w.push(`report_source IN (${(src.length ? src : ["-"]).map(strLit).join(",")})`);
+  if (c.initial && R.has("type_of_report")) w.push(`contains(coalesce(type_of_report, ''), 'I')`);
+  if (c.noSummary && R.has("summary_report")) w.push(`coalesce(summary_report, '') <> 'Y'`);
+  if (c.brand && R.has("brand")) w.push(`contains(lower(coalesce(brand, '')), ${strLit(c.brand.toLowerCase())})`);
+  if (c.mfr) {
+    const m = ["manufacturer", "manufacturer_g1"].filter(x => R.has(x)).map(x => `contains(lower(coalesce(${x}, '')), ${strLit(c.mfr.toLowerCase())})`);
+    if (m.length) w.push(`(${m.join(" OR ")})`);
+  }
+  if (Number.isInteger(c.dpc) && c.dpc > 0) w.push(`list_contains(device_problem_codes, ${c.dpc})`);
+  if (Number.isInteger(c.ppc) && c.ppc > 0) w.push(`list_contains(patient_problem_codes, ${c.ppc})`);
+  if (hasText) {
+    const sub = terms => `report_key IN (SELECT k FROM text_pc WHERE pc IN (${c.pcs.map(strLit).join(",")}) AND (${terms.map(t => `contains(lower(text), ${strLit(t)})`).join(" OR ")}))`;
+    if (c.incl.length) w.push(sub(c.incl));
+    if (c.excl.length) w.push("NOT " + sub(c.excl));
+  }
+  return w.join("\n  AND ");
+}
+
+function cohortCte(c, S, hasText) {
+  const R = new Set(S.map(x => x[0]));
+  const key = ["product_code", "date_of_event", "lower(coalesce(manufacturer, ''))", "lower(coalesce(brand, ''))"]
+    .filter(x => R.has(x.replace(/^lower\(coalesce\((\w+).*$/, "$1")));
+  const dup = R.has("date_of_event")
+    ? `CASE WHEN date_of_event IS NULL THEN 1 ELSE count(*) OVER (PARTITION BY ${key.join(", ")}) END` : "1";
+  return `b AS (SELECT DISTINCT ON (report_key) * FROM reports WHERE ${cohortWhere(c, S, hasText)} ORDER BY report_key, product_code),
+  x AS (SELECT *, ${dup} AS dup_n FROM b),
+  y AS (SELECT * EXCLUDE (dup_n), CASE WHEN dup_n > 1 THEN dense_rank() OVER (ORDER BY ${key.join(", ")}) END AS dup_group FROM x)`;
+}
+
+function outCols(S) {
+  return S.filter(([n]) => n !== "h").map(([n, t]) => {
+    if (t === "DATE") return `CAST(${n} AS VARCHAR) AS ${n}`;
+    if (t === "BIGINT" || t === "HUGEINT") return `${n}::DOUBLE AS ${n}`;
+    if (t === "SMALLINT" || t === "TINYINT") return `${n}::INTEGER AS ${n}`;
+    if (t.endsWith("[]")) return `array_to_string(${n}, ';') AS ${n}`;
+    return n;
+  });
+}
+
+async function cohortSummary(q, c, S, hasText) {
+  const [r] = await q(`WITH ${cohortCte(c, S, hasText)}
+    SELECT count(*)::DOUBLE AS n, count(DISTINCT product_code)::DOUBLE AS npc,
+      count(*) FILTER (WHERE event = 'D')::DOUBLE AS deaths, count(*) FILTER (WHERE event = 'IN')::DOUBLE AS injuries,
+      count(*) FILTER (WHERE event = 'M')::DOUBLE AS malfunctions,
+      count(*) FILTER (WHERE dup_group IS NOT NULL)::DOUBLE AS dup_reports, count(DISTINCT dup_group)::DOUBLE AS dup_groups,
+      CAST(min(date_received) AS VARCHAR) AS first, CAST(max(date_received) AS VARCHAR) AS last FROM y`);
+  return r;
+}
+
+/* mode: "newest" (preview), "all" (by report key), "sample" (fixed random order: smallest hash first) */
+async function cohortRows(q, c, S, hasText, mode, limit, withCls = false) {
+  const R = new Set(S.map(x => x[0]));
+  const order = mode === "sample" ? "h, report_key" : mode === "newest" ? "report_key DESC" : "report_key";
+  await q(`CREATE OR REPLACE TEMP TABLE cohort_sel AS WITH ${cohortCte(c, S, hasText)}
+           SELECT * FROM y ORDER BY ${order}${limit ? ` LIMIT ${limit | 0}` : ""}`);
+  const terms = [["device_problem_codes", "device", "device_problem_terms"], ["patient_problem_codes", "patient", "patient_problem_terms"]]
+    .filter(([col]) => R.has(col))
+    .map(([col, type, name]) => `(SELECT string_agg(TERM, '; ' ORDER BY CODE) FROM dict WHERE CODE_TYPE = '${type}' AND list_contains(s.${col}, CODE)) AS ${name}`);
+  const cl = withCls ? ", c.device_name, c.device_class, c.implant, c.life_sustaining, c.specialty" : "";
+  return q(`SELECT ${outCols(S).map(x => x.includes(" AS ") ? x.replace(/^(CAST\(|array_to_string\()?(\w+)/, (m, f, n) => (f || "") + "s." + n) : "s." + x).join(", ")},
+            s.dup_group::INTEGER AS dup_group${terms.length ? ", " + terms.join(", ") : ""}${cl}
+            FROM cohort_sel s ${withCls ? "LEFT JOIN cls c ON c.product_code = s.product_code" : ""} ORDER BY ${order.split(", ").map(o => "s." + o).join(", ")}`);
+}
+
+/* Narratives for the reports in cohort_sel (call after cohortRows). Only the text of each report's own product code. */
+async function cohortText(q) {
+  const [r] = await q(`SELECT max(h) AS hmax, min(report_key)::DOUBLE AS kmin, max(report_key)::DOUBLE AS kmax,
+                       string_agg(DISTINCT product_code, ',') AS pcs FROM cohort_sel`);
+  if (r.hmax === null || r.hmax === undefined) return new Map();
+  const pcs = pcList(r.pcs).map(strLit).join(",");
+  const rows = await q(`SELECT t.k::DOUBLE AS k,
+      string_agg(t.text, ' ' ORDER BY t.text_key) FILTER (WHERE t.text_type = 'D') AS event_description,
+      string_agg(t.text, ' ' ORDER BY t.text_key) FILTER (WHERE t.text_type = 'E') AS manufacturer_evaluation,
+      string_agg(t.text, ' ' ORDER BY t.text_key) FILTER (WHERE t.text_type = 'N') AS manufacturer_narrative,
+      string_agg(t.text, ' ' ORDER BY t.text_key) FILTER (WHERE t.text_type NOT IN ('D', 'E', 'N')) AS other_text
+    FROM text_pc t SEMI JOIN cohort_sel s ON t.k = s.report_key AND t.pc = s.product_code
+    WHERE t.pc IN (${pcs}) AND t.h <= ${r.hmax | 0} AND t.k BETWEEN ${r.kmin} AND ${r.kmax}
+    GROUP BY t.k`);
+  return new Map(rows.map(x => [x.k, x]));
+}
+
+const TL_EXCL = [
+  { id: "noSummary", label: "Summary reports", sql: "NOT coalesce(t.summary, false)" },
+  { id: "noOther", label: "Event type Other or missing", sql: "t.ev IN ('D', 'IN', 'M')" },
+  { id: "needMfr", label: "No manufacturer name", sql: "t.mfr_id IS NOT NULL" },
+  { id: "needClass", label: "No device class (1, 2 or 3)", sql: "c.device_class IN ('1', '2', '3')" },
+  { id: "initial", label: "Type of report without \"initial\"", sql: "coalesce(t.initial, false)" },
+];
+const TL_CATS = [
+  { id: "ontime", label: "Within 30 days", color: "var(--teal)" },
+  { id: "late180", label: "31 to 180 days", color: "var(--late1)" },
+  { id: "late181", label: "More than 180 days", color: "var(--late2)" },
+  { id: "missing", label: "Missing or invalid date", color: "var(--unk)" },
+];
+
+/* t = { m0: 201909, m1: 202212, src: ["M"], pcs: [], classes: ["1","2","3"], spec: "", noSummary, noOther, needMfr, needClass, initial } */
+function tlWhere(t, withExcl = true) {
+  const w = [`t.ym BETWEEN ${t.m0 | 0} AND ${t.m1 | 0}`];
+  const src = t.src.filter(x => SOURCES.some(s => s.id === x));
+  if (src.length < SOURCES.length) w.push(`t.src IN (${(src.length ? src : ["-"]).map(strLit).join(",")})`);
+  if (t.pcs.length) w.push(`t.pc IN (${t.pcs.map(strLit).join(",")})`);
+  const cl = t.classes.filter(x => ["1", "2", "3"].includes(x));
+  if (cl.length < 3) w.push(`c.device_class IN (${(cl.length ? cl : ["-"]).map(strLit).join(",")})`);
+  if (/^[A-Z]{2}$/.test(t.spec || "")) w.push(`c.specialty_code = ${strLit(t.spec)}`);
+  if (withExcl) for (const e of TL_EXCL) if (t[e.id]) w.push(e.sql);
+  return w;
+}
+function tlCte(t) {
+  return `b AS (SELECT t.*, c.device_class, c.implant, c.life_sustaining, c.specialty FROM timely t
+                LEFT JOIN cls c ON c.product_code = t.pc WHERE ${tlWhere(t).join(" AND ")}),
+  x AS (SELECT *, CASE WHEN days IS NULL OR days < 0 THEN 'missing' WHEN days <= 30 THEN 'ontime'
+                       WHEN days <= 180 THEN 'late180' ELSE 'late181' END AS cat FROM b)`;
+}
+
+async function tlFlow(q, t) {
+  const parts = ["count(*)::DOUBLE AS n0"], acc = [];
+  TL_EXCL.forEach((e, i) => {
+    if (t[e.id]) acc.push(e.sql);
+    parts.push(`count(*) FILTER (WHERE ${acc.length ? acc.join(" AND ") : "true"})::DOUBLE AS n${i + 1}`);
+  });
+  const [r] = await q(`SELECT ${parts.join(", ")} FROM timely t LEFT JOIN cls c ON c.product_code = t.pc WHERE ${tlWhere(t, false).join(" AND ")}`);
+  return { n0: r.n0, steps: TL_EXCL.map((e, i) => ({ id: e.id, label: e.label, on: Boolean(t[e.id]), removed: r[`n${i}`] - r[`n${i + 1}`], after: r[`n${i + 1}`] })) };
+}
+
+async function tlTable1(q, t) {
+  const rows = await q(`WITH ${tlCte(t)}
+    SELECT CASE WHEN GROUPING(ev) = 1 THEN 'ALL' ELSE ev END AS ev, count(*)::DOUBLE AS n,
+      count(DISTINCT mfr_id)::DOUBLE AS n_mfr, count(DISTINCT dev_id)::DOUBLE AS n_dev,
+      avg(days) FILTER (WHERE days >= 0) AS mean, stddev_samp(days) FILTER (WHERE days >= 0) AS sd,
+      quantile_cont(days, 0.25) FILTER (WHERE days >= 0) AS q1, quantile_cont(days, 0.5) FILTER (WHERE days >= 0) AS median,
+      quantile_cont(days, 0.75) FILTER (WHERE days >= 0) AS q3,
+      ${TL_CATS.map(c => `count(*) FILTER (WHERE cat = '${c.id}')::DOUBLE AS ${c.id}`).join(", ")}
+    FROM x GROUP BY GROUPING SETS ((ev), ())`);
+  const order = ["D", "IN", "M", "O", "U", "ALL"];
+  return rows.sort((a, b) => order.indexOf(a.ev) - order.indexOf(b.ev));
+}
+
+async function tlMonthly(q, t) {
+  return q(`WITH ${tlCte(t)} SELECT ym::INTEGER AS ym, ${TL_CATS.map(c => `count(*) FILTER (WHERE cat = '${c.id}')::DOUBLE AS ${c.id}`).join(", ")}
+            FROM x GROUP BY ym ORDER BY ym`);
+}
+
+const TL_DIMS = [["Device class", "device_class"], ["Life-sustaining or life-supporting", "life_sustaining"],
+                 ["Implantable", "implant"], ["Medical specialty", "specialty"]];
+async function tlByChar(q, t) {
+  const ev = e => `count(*) FILTER (WHERE ev = '${e}')::DOUBLE AS n_${e}, count(*) FILTER (WHERE ev = '${e}' AND days > 30)::DOUBLE AS late_${e}`;
+  const one = ([label, col]) => `SELECT ${strLit(label)} AS dim, coalesce(${col}, 'Missing') AS val, count(*)::DOUBLE AS n,
+      count(*) FILTER (WHERE days > 30)::DOUBLE AS late, ${["D", "IN", "M"].map(ev).join(", ")} FROM y GROUP BY 2`;
+  const rows = await q(`WITH ${tlCte(t)}, y AS (SELECT * FROM x WHERE cat <> 'missing') ${TL_DIMS.map(one).join(" UNION ALL ")}`);
+  const rank = r => TL_DIMS.findIndex(d => d[0] === r.dim) * 1e9 + (r.dim === "Medical specialty" ? -r.n : ({ 1: 1, 2: 2, 3: 3, N: 1, Y: 2 }[r.val] || 9));
+  return rows.sort((a, b) => rank(a) - rank(b));
+}
+
+async function tlTop(q, t, kind, byGroup, n = 10) {
+  const nm = byGroup ? "m.grp" : "m.name";
+  const late = "count(*) FILTER (WHERE cat IN ('late180', 'late181'))::DOUBLE";
+  const z = kind === "mfr"
+    ? `SELECT ${nm} AS manufacturer, count(*)::DOUBLE AS total, ${late} AS late, count(*) FILTER (WHERE cat <> 'missing')::DOUBLE AS valid
+       FROM x JOIN tl_mfr m ON m.mfr_id = x.mfr_id GROUP BY 1`
+    : `SELECT d.brand, d.generic, ${nm} AS manufacturer, count(*)::DOUBLE AS total, ${late} AS late, count(*) FILTER (WHERE cat <> 'missing')::DOUBLE AS valid
+       FROM x JOIN tl_dev d ON d.dev_id = x.dev_id LEFT JOIN tl_mfr m ON m.mfr_id = d.mfr_id GROUP BY x.dev_id, 1, 2, 3`;
+  const rows = await q(`WITH ${tlCte(t)}, z AS (${z}), s AS (SELECT sum(late) AS all_late FROM z)
+    SELECT z.*, late / nullif(valid, 0) AS late_share, late / nullif(s.all_late, 0) AS share_of_all_late
+    FROM z, s ORDER BY late DESC, total DESC LIMIT ${n | 0}`);
+  let meanTop200 = null;
+  if (kind === "mfr") {
+    const [r] = await q(`WITH ${tlCte(t)}, z AS (${z})
+      SELECT avg(late / nullif(valid, 0)) AS m FROM (SELECT * FROM z ORDER BY total DESC LIMIT 200)`);
+    meanTop200 = r.m;
+  }
+  return { rows, meanTop200 };
+}
+
+function gini(values) {
+  const x = values.filter(v => Number.isFinite(v)), n = x.length, mean = x.reduce((a, b) => a + b, 0) / (n || 1);
+  if (!n || !mean) return null;
+  const s = [...x].sort((a, b) => a - b);
+  let cum = 0;
+  s.forEach((v, i) => { cum += (2 * (i + 1) - n - 1) * v; });
+  return cum / (n * n * mean);
+}
+
+function wilson(x, n, z = 1.96) {
+  if (!n) return [null, null, null];
+  const p = x / n, d = 1 + z * z / n, c = (p + z * z / (2 * n)) / d, h = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d;
+  return [p, Math.max(0, c - h), Math.min(1, c + h)];
+}
+
+function monthsBetween(m0, m1) {
+  const out = [];
+  for (let y = Math.floor(m0 / 100), m = m0 % 100; y * 100 + m <= m1; m === 12 ? (y++, m = 1) : m++) out.push(y * 100 + m);
+  return out;
+}
+
+function toCsv(rows, cols) {
+  const esc = v => {
+    const s = v === null || v === undefined ? "" : typeof v === "number"
+      ? (!Number.isFinite(v) ? "" : Number.isInteger(v) ? String(v) : String(+v.toPrecision(6))) : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(c.get(r))).join(","))].join("\n");
+}
+/* CORE END */
+
+/* ------------------------------------------------------------------ helpers */
+const $ = id => document.getElementById(id);
+const NF = new Intl.NumberFormat("en-US");
+const fmt = (v, d = 2) => !Number.isFinite(v) ? "–" : (v >= 1000 ? NF.format(Math.round(v)) : v.toFixed(d));
+const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const status = msg => { $("status").textContent = msg || ""; };
+const svgEl = (tag, attrs = {}) => {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+};
+
+let conn, M, products = [], q;
+const state = {
+  pc: safePc((params.get("pc") || "").toUpperCase()),
+  kind: params.get("kind") === "pp" ? "pp" : "dp",
+  y0: +params.get("y0") || 0, y1: +params.get("y1") || 0,
+  ev: (params.get("ev") || EVENT_IDS.join(",")).split(",").filter(e => EVENT_IDS.includes(e)),
+  crit: CRITERIA[params.get("crit")] ? params.get("crit") : "ror",
+  sort: { key: "rorLo", dir: -1 }, filter: "", minA: 1, onlySig: false,
+  result: null, selected: null, yMin: 1991, yMax: new Date().getFullYear(),
+  view: params.get("view") === "reports" ? "reports" : "signals", cohort: null,
+  page: params.get("page") === "timely" ? "timely" : "device",
+};
+
+function saveUrl() {
+  const p = new URLSearchParams();
+  if (params.get("data")) p.set("data", params.get("data"));
+  if (state.pc) p.set("pc", state.pc);
+  if (state.kind !== "dp") p.set("kind", state.kind);
+  if (state.y0 !== state.yMin) p.set("y0", state.y0);
+  if (state.y1 !== state.yMax) p.set("y1", state.y1);
+  if (state.ev.length !== EVENT_IDS.length) p.set("ev", state.ev.join(","));
+  if (state.crit !== "ror") p.set("crit", state.crit);
+  if (state.view !== "signals") p.set("view", state.view);
+  if (state.page !== "device") p.set("page", state.page);
+  history.replaceState(null, "", `${location.pathname}${p.toString() ? "?" + p : ""}`);
+}
+const filters = () => ({ y0: state.y0, y1: state.y1, ev: state.ev });
+
+/* ------------------------------------------------------------------ start */
+async function start() {
+  try {
+    const r = await fetch(new URL("site/manifest.json", BASE));
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    M = await r.json();
+  } catch (e) {
+    return fail("The explorer cannot read the data description",
+      `It tried to read <code>${esc(new URL("site/manifest.json", BASE).href)}</code> (${esc(e.message)}). ` +
+      (new URL(BASE).origin === location.origin
+        ? `Run the pipeline stage <code>site</code>, then start <code>python serve.py</code> in the data folder and open the address that it shows.`
+        : `The data are on another server (${esc(new URL(BASE).host)}). Check that the address is correct and that the server allows cross-origin requests (CORS). <code>python deploy.py --steps check</code> tests this.`));
+  }
+  status("Starting the database engine…");
+  try {
+    const duckdb = await import(`https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${DUCKDB_VERSION}/+esm`);
+    const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+    const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
+    const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(workerUrl));
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    URL.revokeObjectURL(workerUrl);
+    conn = await db.connect();
+    let chain = Promise.resolve();  // one query at a time on the connection
+    q = sql => {
+      const run = chain.then(() => conn.query(sql)).then(t => t.toArray().map(row => row.toJSON()));
+      chain = run.catch(() => {});
+      return run;
+    };
+    const list = t => "[" + M.tables[t].map(p => `'${new URL(p, BASE).href.replace(/'/g, "''")}'`).join(",") + "]";
+    status("Reading the count tables…");
+    for (const t of ["pair_dp", "pair_pp", "pc_dp", "pc_pp", "code_dp", "code_pp", "idx_dp", "idx_pp", "pc_all", "master", "device"]) {
+      await q(`CREATE VIEW ${t} AS SELECT * FROM read_parquet(${list(t)})`);
+    }
+    if (M.tables.reports) await q(`CREATE VIEW reports AS SELECT * FROM read_parquet(${list("reports")})`);
+    if (M.tables.text_pc) await q(`CREATE VIEW text_pc AS SELECT * FROM read_parquet(${list("text_pc")})`);
+    if (M.tables.timely) for (const t of ["timely", "tl_mfr", "tl_dev"]) await q(`CREATE VIEW ${t} AS SELECT * FROM read_parquet(${list(t)})`);
+    if (M.tables.classification) await q(`CREATE TABLE cls AS SELECT * FROM read_parquet(${list("classification")})`);
+    else await q(`CREATE TABLE cls (product_code VARCHAR, device_name VARCHAR, device_class VARCHAR, implant VARCHAR,
+                  life_sustaining VARCHAR, specialty_code VARCHAR, specialty VARCHAR)`);
+    await q(`CREATE TABLE totals AS SELECT * FROM read_parquet(${list("totals")})`);
+    await q(`CREATE TABLE dict AS SELECT CODE_TYPE, CODE, TERM, STATUS FROM read_parquet(${list("dictionary")})`);
+    const pcols = new Set((await q(`DESCRIBE SELECT * FROM read_parquet(${list("products")})`)).map(r => r.column_name));
+    const pc = c => pcols.has(c) ? c : `NULL AS ${c}`;
+    products = await q(`SELECT pc, coalesce(${pcols.has("device_name") ? "device_name" : "NULL"}, generic_name) AS name, generic_name AS generic,
+                        ${pc("device_class")}, ${pc("implant")}, ${pc("life_sustaining")}, ${pc("specialty")},
+                        n_reports::DOUBLE AS n, first_year::INTEGER AS y0, last_year::INTEGER AS y1,
+                        ${M.tables.text_pc ? "coalesce(text_bytes, 0)::DOUBLE" : "0::DOUBLE"} AS text_bytes
+                        FROM read_parquet(${list("products")}) ORDER BY n_reports DESC`);
+    const [yr] = await q(`SELECT min(y)::INTEGER AS a, max(y)::INTEGER AS b FROM totals WHERE y IS NOT NULL`);
+    state.yMin = yr.a; state.yMax = yr.b;
+  } catch (e) {
+    console.error(e);
+    return fail("The database engine did not start",
+      `${esc(e.message || e)}. The explorer needs an internet connection the first time, to load DuckDB-WASM from cdn.jsdelivr.net and its Parquet reader from extensions.duckdb.org.`);
+  }
+  status("");
+  state.y0 = clampYear(state.y0 || state.yMin); state.y1 = clampYear(state.y1 || state.yMax);
+  if (state.y0 > state.y1) [state.y0, state.y1] = [state.y1, state.y0];
+  $("dataInfo").textContent = `${NF.format(M.n_reports)} reports received up to ${M.data_through}. Data built ${M.created.slice(0, 10)}.`;
+  buildControls();
+  buildTimely();
+  document.querySelectorAll(".pages button").forEach(b => b.addEventListener("click", () => { state.page = b.dataset.page; showPage(); }));
+  if (state.pc && products.some(p => p.pc === state.pc)) selectProduct(state.pc);
+  else showLanding();
+  showPage();
+}
+
+function showPage() {
+  const t = state.page === "timely";
+  document.querySelectorAll(".pages button").forEach(b => b.dataset.page === state.page ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+  $("deviceControls").hidden = t; $("timelyPage").hidden = !t;
+  if (t) { $("landing").hidden = true; $("product").hidden = true; }
+  else if (state.pc) { $("product").hidden = false; $("landing").hidden = true; } else { $("landing").hidden = false; }
+  saveUrl();
+}
+const clampYear = y => Math.min(state.yMax, Math.max(state.yMin, y | 0));
+
+function fail(title, html) {
+  status("");
+  $("dataInfo").textContent = "Not available";
+  $("main").innerHTML = `<div class="error"><h2>${esc(title)}</h2><p>${html}</p></div>`;
+}
+
+/* ------------------------------------------------------------------ controls */
+function buildControls() {
+  const qi = $("q");
+  qi.disabled = false;
+  $("y0").min = $("y1").min = state.yMin; $("y0").max = $("y1").max = state.yMax;
+  $("y0").value = state.y0; $("y1").value = state.y1;
+  $("evChips").innerHTML = EVENTS.map(e => `<label class="chip" style="--c:${e.color}">
+      <input type="checkbox" value="${e.id}" ${state.ev.includes(e.id) ? "checked" : ""}><span class="dot"></span>${e.label}</label>`).join("");
+  $("crit").innerHTML = Object.entries(CRITERIA).map(([k, c]) => `<option value="${k}" ${k === state.crit ? "selected" : ""}>${esc(c.label)}</option>`).join("");
+
+  let active = -1, items = [];
+  const close = () => { $("sugg").hidden = true; qi.setAttribute("aria-expanded", "false"); active = -1; };
+  const render = () => {
+    const s = qi.value.trim().toUpperCase();
+    if (!s) return close();
+    items = products.filter(p => p.pc.startsWith(s) || (p.name || "").toUpperCase().includes(s) || (p.generic || "").toUpperCase().includes(s)).slice(0, 12);
+    $("sugg").innerHTML = items.length ? items.map((p, i) =>
+      `<li role="option" id="opt${i}" aria-selected="${i === active}" data-pc="${p.pc}"><span class="pc">${p.pc}</span>
+        <span>${esc(p.name || "No device name")}</span><span class="n num">${NF.format(p.n)}</span></li>`).join("")
+      : `<li aria-disabled="true"><span></span><span>No device type matches “${esc(qi.value.trim())}”.</span></li>`;
+    $("sugg").hidden = false; qi.setAttribute("aria-expanded", "true");
+    qi.setAttribute("aria-activedescendant", active >= 0 ? `opt${active}` : "");
+  };
+  qi.addEventListener("input", () => { active = -1; render(); });
+  qi.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); if (!items.length) return;
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length; render();
+    } else if (e.key === "Enter") {
+      const p = items[active >= 0 ? active : 0]; if (p) { close(); selectProduct(p.pc); }
+    } else if (e.key === "Escape") close();
+  });
+  $("sugg").addEventListener("mousedown", e => {
+    const li = e.target.closest("li[data-pc]"); if (li) { e.preventDefault(); close(); selectProduct(li.dataset.pc); }
+  });
+  qi.addEventListener("blur", () => setTimeout(close, 100));
+
+  const onYears = () => {
+    let a = clampYear(+$("y0").value || state.yMin), b = clampYear(+$("y1").value || state.yMax);
+    if (a > b) [a, b] = [b, a];
+    $("y0").value = a; $("y1").value = b;
+    if (a !== state.y0 || b !== state.y1) { state.y0 = a; state.y1 = b; $("cD0").value = `${a}-01-01`; $("cD1").value = `${b}-12-31`; refresh(); }
+  };
+  $("y0").addEventListener("change", onYears); $("y1").addEventListener("change", onYears);
+  $("evChips").addEventListener("change", () => {
+    state.ev = [...$("evChips").querySelectorAll("input:checked")].map(i => i.value); refresh();
+  });
+  document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+    state.kind = b.dataset.kind; state.selected = null; state.sort = { key: "rorLo", dir: -1 }; refresh();
+  }));
+  $("crit").addEventListener("change", () => { state.crit = $("crit").value; saveUrl(); renderTable(); });
+  $("filt").addEventListener("input", () => { state.filter = $("filt").value.trim().toLowerCase(); renderTable(); });
+  $("minA").addEventListener("change", () => { state.minA = Math.max(1, +$("minA").value | 0); $("minA").value = state.minA; renderTable(); });
+  $("onlySig").addEventListener("change", () => { state.onlySig = $("onlySig").checked; renderTable(); });
+  $("export").addEventListener("click", exportCsv);
+  buildCohortForm();
+}
+
+function showLanding() {
+  $("product").hidden = true; $("landing").hidden = false;
+  $("toplist").innerHTML = products.slice(0, 24).map(p => `<li><button data-pc="${p.pc}"><span class="pc">${p.pc}</span>
+      <span class="nm">${esc(p.name || "No device name")}</span><span class="n num">${NF.format(p.n)} reports</span></button></li>`).join("");
+  $("toplist").onclick = e => { const b = e.target.closest("button[data-pc]"); if (b) selectProduct(b.dataset.pc); };
+  saveUrl();
+}
+
+function selectProduct(pc) {
+  state.pc = pc; state.selected = null;
+  const p = products.find(x => x.pc === pc);
+  $("q").value = `${pc} ${p?.name || ""}`.trim();
+  $("cPcs").value = pc; $("cResult").hidden = true; state.cohort = null;
+  $("landing").hidden = true; $("product").hidden = false;
+  refresh();
+}
+
+/* ------------------------------------------------------------------ main view */
+let seq = 0;
+async function refresh() {
+  if (!state.pc) return showLanding();
+  saveUrl();
+  const my = ++seq, f = filters(), pc = state.pc;
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.kind === state.kind)));
+  showView();
+  const p = products.find(x => x.pc === pc);
+  $("pTitle").innerHTML = `<span class="code">${pc}</span> ${esc(p?.name || "No device name")}`;
+  const alt = p?.generic && p.generic.toLowerCase() !== (p.name || "").toLowerCase() ? `Most frequent generic name in the reports: ${p.generic}` : "";
+  $("pAlt").textContent = alt; $("pAlt").hidden = !alt;
+  const cls = { 1: "Class I", 2: "Class II", 3: "Class III", U: "Unclassified", N: "Not classified", F: "HDE" };
+  $("pBadges").innerHTML = [p?.device_class ? cls[p.device_class] || `Class ${p.device_class}` : "", p?.specialty || "",
+    p?.implant === "Y" ? "Implantable" : "", p?.life_sustaining === "Y" ? "Life-sustaining or life-supporting" : ""]
+    .filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
+  if (!state.ev.length) {
+    $("pFacts").innerHTML = ""; $("trend").innerHTML = ""; $("trendKey").innerHTML = "";
+    $("resBody").innerHTML = `<tr><td colspan="9" class="empty">Select at least one event type.</td></tr>`;
+    $("count").textContent = ""; $("drawer").hidden = true; return;
+  }
+  status("Calculating…");
+  try {
+    const [facts, trend, res] = await Promise.all([productFacts(q, f, pc), productTrend(q, f, pc), signalTable(q, f, pc, state.kind)]);
+    if (my !== seq) return;
+    state.result = res;
+    renderFacts(facts, res);
+    drawStacked($("trend"), trend, f);
+    $("trendKey").innerHTML = EVENTS.filter(e => f.ev.includes(e.id)).map(e => `<span class="key" style="--c:${e.color}"><i></i>${e.label}</span>`).join("")
+      + `<span>Reports per year received, ${f.y0}–${f.y1}</span>`;
+    renderTable();
+    if (state.selected !== null) openPair(state.selected); else $("drawer").hidden = true;
+    status("");
+  } catch (e) {
+    console.error(e); status(`The query failed: ${e.message || e}`);
+  }
+}
+
+function renderFacts(facts, res) {
+  const by = facts.by, li = (cls, n, label) => `<li class="${cls}"><strong>${NF.format(n || 0)}</strong> ${label}</li>`;
+  $("pFacts").innerHTML = li("", facts.total, "reports in the selection")
+    + (state.ev.includes("D") ? li("death", by.D, "deaths") : "")
+    + (state.ev.includes("IN") ? li("", by.IN, "injuries") : "")
+    + (state.ev.includes("M") ? li("", by.M, "malfunctions") : "")
+    + li("", res.nP, `with a ${KIND[state.kind].type} problem code`);
+}
+
+function drawStacked(svg, rows, f, opts = {}) {
+  svg.__chart = [rows, f, opts];
+  svg.innerHTML = "";
+  const W = Math.max(300, Math.round(svg.getBoundingClientRect().width) || 900);
+  const H = opts.h || (W < 600 ? 150 : 180), L = 52, R = 8, T = 12, B = 24;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const years = []; for (let y = f.y0; y <= f.y1; y++) years.push(y);
+  const by = new Map(years.map(y => [y, {}]));
+  for (const r of rows) if (by.has(r.y)) by.get(r.y)[r.ev] = (by.get(r.y)[r.ev] || 0) + r.n;
+  const tot = y => Object.values(by.get(y)).reduce((s, v) => s + v, 0);
+  const max = Math.max(1, ...years.map(tot));
+  const nice = (() => { const p = Math.pow(10, Math.floor(Math.log10(max))); return [1, 2, 2.5, 5, 10].map(m => m * p).find(v => v >= max); })();
+  const x = i => L + i * (W - L - R) / years.length, bw = Math.max(1, (W - L - R) / years.length - 2);
+  const yv = v => H - B - v / nice * (H - T - B);
+  for (const g of [0, .5, 1]) {
+    svg.append(svgEl("line", { x1: L, x2: W - R, y1: yv(nice * g), y2: yv(nice * g), class: "grid" }));
+    const t = svgEl("text", { x: L - 6, y: yv(nice * g) + 4, "text-anchor": "end" }); t.textContent = fmt(nice * g, 0); svg.append(t);
+  }
+  const order = EVENTS.filter(e => f.ev.includes(e.id));
+  years.forEach((y, i) => {
+    let acc = 0;
+    for (const e of order) {
+      const v = by.get(y)[e.id] || 0; if (!v) continue;
+      const r = svgEl("rect", { x: x(i) + 1, width: bw, y: yv(acc + v), height: Math.max(0.5, yv(acc) - yv(acc + v)), fill: e.color });
+      const tt = svgEl("title"); tt.textContent = `${y}: ${NF.format(v)} ${e.label.toLowerCase()}`; r.append(tt);
+      svg.append(r); acc += v;
+    }
+    const step = Math.ceil(years.length / Math.max(3, Math.floor(W / 80)));
+    if (i % step === 0 || i === years.length - 1) {
+      const t = svgEl("text", { x: x(i) + bw / 2 + 1, y: H - 6, "text-anchor": "middle" }); t.textContent = y; svg.append(t);
+    }
+  });
+}
+
+function drawSeries(svg, labels, series, opts = {}) {
+  svg.__series = [labels, series, opts];
+  svg.innerHTML = "";
+  const W = Math.max(300, Math.round(svg.getBoundingClientRect().width) || 900);
+  const H = opts.h || (W < 600 ? 160 : 200), L = 56, R = 8, T = 12, B = 24, n = labels.length;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const tot = i => series.reduce((s, x) => s + (x.values[i] || 0), 0);
+  const max = Math.max(1, ...labels.map((_, i) => tot(i)));
+  const nice = (() => { const p = Math.pow(10, Math.floor(Math.log10(max))); return [1, 2, 2.5, 5, 10].map(m => m * p).find(v => v >= max); })();
+  const step = (W - L - R) / Math.max(1, n), bw = Math.max(1, step - (step > 6 ? 2 : 0.5));
+  const yv = v => H - B - v / nice * (H - T - B);
+  for (const g of [0, .5, 1]) {
+    svg.append(svgEl("line", { x1: L, x2: W - R, y1: yv(nice * g), y2: yv(nice * g), class: "grid" }));
+    const t = svgEl("text", { x: L - 6, y: yv(nice * g) + 4, "text-anchor": "end" }); t.textContent = fmt(nice * g, 0); svg.append(t);
+  }
+  labels.forEach((lab, i) => {
+    let acc = 0;
+    for (const s of series) {
+      const v = s.values[i] || 0; if (!v) continue;
+      const r = svgEl("rect", { x: L + i * step + (step - bw) / 2, width: bw, y: yv(acc + v), height: Math.max(0.5, yv(acc) - yv(acc + v)), fill: s.color });
+      const tt = svgEl("title"); tt.textContent = `${opts.fmtLabel ? opts.fmtLabel(lab) : lab}: ${NF.format(v)} ${s.label.toLowerCase()}`; r.append(tt);
+      svg.append(r); acc += v;
+    }
+    if (opts.tick ? opts.tick(lab, i, n, W) : i % Math.ceil(n / 10) === 0) {
+      const t = svgEl("text", { x: L + i * step + step / 2, y: H - 6, "text-anchor": "middle" }); t.textContent = opts.tickLabel ? opts.tickLabel(lab) : lab; svg.append(t);
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ signal table */
+const COLS = [
+  { key: "term", label: "Problem", get: r => r.term || "" },
+  { key: "a", label: "Reports", num: true },
+  { key: "expected", label: "Expected", num: true },
+  { key: "rorLo", label: "ROR and 95% CI", forest: true },
+  { key: "ror", label: "ROR", num: true },
+  { key: "prr", label: "PRR", num: true },
+  { key: "chi2", label: "χ²", num: true },
+  { key: "ic025", label: "IC025", num: true },
+  { key: "sig", label: "Signal" },
+];
+const FMIN = 0.1, FMAX = 100, FW = 150;
+const fx = v => { const l = Math.log10(Math.min(FMAX, Math.max(FMIN, v))); return 6 + (l + 1) / 3 * (FW - 12); };
+
+function forestHeader() {
+  const s = [`<svg width="${FW}" height="24" aria-hidden="true"><line class="axis" x1="${fx(FMIN)}" x2="${fx(FMAX)}" y1="5" y2="5"/>`];
+  for (const t of [0.1, 1, 10, 100]) {
+    const anchor = t === FMIN ? "start" : t === FMAX ? "end" : "middle";
+    const x = t === FMIN ? fx(t) - 2 : t === FMAX ? fx(t) + 2 : fx(t);
+    s.push(`<line class="axis" x1="${fx(t)}" x2="${fx(t)}" y1="2" y2="9"/><text class="tick" x="${x}" y="21" text-anchor="${anchor}">${t}</text>`);
+  }
+  return s.join("") + "</svg>";
+}
+function forestCell(r) {
+  const lo = fx(r.rorLo), hi = fx(r.rorHi), pt = fx(r.ror);
+  return `<svg width="${FW}" height="16" role="img" aria-label="ROR ${fmt(r.ror)} (95% CI ${fmt(r.rorLo)} to ${fmt(r.rorHi)})">
+    <line class="ref" x1="${fx(1)}" x2="${fx(1)}" y1="0" y2="16"/><line class="ci" x1="${lo}" x2="${hi}" y1="8" y2="8"/>
+    <rect class="pt" x="${pt - 4}" y="4" width="8" height="8"/></svg>`;
+}
+function codeLabel(r) {
+  const tag = { archived_evs: "retired code", archived_fda: "retired code", cross_type: "entered in the wrong field",
+                unknown: "unknown code", inferred_openfda: "inferred term" }[r.status];
+  return `<span class="term">${esc(r.term || "No description")}</span><span class="codeinfo">${r.code}</span>${tag ? `<span class="tag">${tag}</span>` : ""}`;
+}
+
+function visibleRows() {
+  const res = state.result; if (!res) return [];
+  const test = CRITERIA[state.crit].test;
+  let rows = res.rows.map(r => ({ ...r, sig: test(r) }));
+  if (state.filter) rows = rows.filter(r => (r.term || "").toLowerCase().includes(state.filter) || String(r.code).includes(state.filter));
+  rows = rows.filter(r => r.a >= state.minA && (!state.onlySig || r.sig));
+  const { key, dir } = state.sort;
+  rows.sort((x, y) => {
+    const vx = key === "term" ? (x.term || "") : key === "sig" ? +x.sig : x[key];
+    const vy = key === "term" ? (y.term || "") : key === "sig" ? +y.sig : y[key];
+    if (key !== "term" && key !== "a" && (x.a >= 3) !== (y.a >= 3)) return x.a >= 3 ? -1 : 1;  // 3+ reports first
+    return (typeof vx === "string" ? vx.localeCompare(vy) : vx - vy) * dir || y.a - x.a;
+  });
+  return rows;
+}
+
+function renderTable() {
+  $("resHead").innerHTML = COLS.map(c => {
+    const s = state.sort.key === c.key ? ` aria-sort="${state.sort.dir > 0 ? "ascending" : "descending"}"` : "";
+    const arrow = state.sort.key === c.key ? (state.sort.dir > 0 ? " ▲" : " ▼") : "";
+    return `<th scope="col" class="${c.forest ? "forest" : ""}"${s}><button data-key="${c.key}">${c.label}${arrow}</button>${c.forest ? `<div style="margin-top:.3rem">${forestHeader()}</div>` : ""}</th>`;
+  }).join("");
+  $("resHead").querySelectorAll("button").forEach(b => b.onclick = () => {
+    const k = b.dataset.key;
+    state.sort = state.sort.key === k ? { key: k, dir: -state.sort.dir } : { key: k, dir: k === "term" ? 1 : -1 };
+    renderTable();
+  });
+  const rows = visibleRows(), res = state.result;
+  const nSig = rows.filter(r => r.sig).length;
+  $("count").textContent = res ? `${NF.format(rows.length)} of ${NF.format(res.rows.length)} problems shown, ${NF.format(nSig)} signals` : "";
+  if (!rows.length) {
+    $("resBody").innerHTML = `<tr><td colspan="${COLS.length}" class="empty">${res && res.rows.length
+      ? "No problem matches the filters. Clear the filter text or lower the minimum number of reports."
+      : `No report of this device type has a ${KIND[state.kind].type} problem code in the selected years and event types.`}</td></tr>`;
+    return;
+  }
+  $("resBody").innerHTML = rows.slice(0, 1500).map(r => `<tr data-code="${r.code}" class="${r.sig ? "sig" : ""} ${r.a < 3 ? "few" : ""} ${state.selected === r.code ? "sel" : ""}" tabindex="0">
+    <td>${codeLabel(r)}</td><td class="num">${NF.format(r.a)}</td><td class="num">${fmt(r.expected, 1)}</td>
+    <td class="forest">${forestCell(r)}</td><td class="num">${fmt(r.ror)}</td><td class="num">${fmt(r.prr)}</td>
+    <td class="num">${fmt(r.chi2, 1)}</td><td class="num">${fmt(r.ic025)}</td><td>${r.sig ? '<span class="flag">Signal</span>' : ""}</td></tr>`).join("");
+  $("resBody").onclick = e => { const tr = e.target.closest("tr[data-code]"); if (tr) openPair(+tr.dataset.code); };
+  $("resBody").onkeydown = e => { if (e.key === "Enter") { const tr = e.target.closest("tr[data-code]"); if (tr) openPair(+tr.dataset.code); } };
+}
+
+function exportCsv() {
+  const rows = visibleRows(); if (!rows.length) return;
+  const cols = [
+    { label: "product_code", get: () => state.pc }, { label: "problem_kind", get: () => KIND[state.kind].type },
+    { label: "code", get: r => r.code }, { label: "term", get: r => r.term }, { label: "code_status", get: r => r.status },
+    { label: "a", get: r => r.a }, { label: "b", get: r => r.b }, { label: "c", get: r => r.c }, { label: "d", get: r => r.d },
+    { label: "expected", get: r => r.expected }, { label: "ror", get: r => r.ror }, { label: "ror_lo95", get: r => r.rorLo },
+    { label: "ror_hi95", get: r => r.rorHi }, { label: "prr", get: r => r.prr }, { label: "chi2_yates", get: r => r.chi2 },
+    { label: "ic", get: r => r.ic }, { label: "ic025", get: r => r.ic025 }, { label: "signal", get: r => r.sig ? 1 : 0 },
+    { label: "years", get: () => `${state.y0}-${state.y1}` }, { label: "event_types", get: () => state.ev.join(" ") },
+    { label: "signal_rule", get: () => CRITERIA[state.crit].label }, { label: "data_through", get: () => M.data_through },
+  ];
+  const blob = new Blob([toCsv(rows, cols)], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `maude_${state.pc}_${KIND[state.kind].type}_${state.y0}-${state.y1}.csv`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ------------------------------------------------------------------ report panel */
+let pairSeq = 0;
+async function openPair(code) {
+  const r = state.result?.rows.find(x => x.code === code); if (!r) return;
+  state.selected = code;
+  document.querySelectorAll("#resBody tr").forEach(tr => tr.classList.toggle("sel", +tr.dataset.code === code));
+  const d = $("drawer"), f = filters(), pc = state.pc, kind = state.kind, my = ++pairSeq;
+  const sig = CRITERIA[state.crit].test(r);
+  d.hidden = false;
+  d.innerHTML = `<button class="btn close" id="closeDrawer">Close</button>
+    <h3>${esc(r.term || `Code ${code}`)} <span class="codeinfo">${KIND[kind].type} problem ${code}</span></h3>
+    <p class="note">${pc} ${esc(products.find(p => p.pc === pc)?.name || "")}, received ${f.y0}–${f.y1}. ${sig ? '<span class="flag">Signal</span> by the selected rule.' : "Not a signal by the selected rule."}</p>
+    <div class="split">
+      <div>
+        <table class="two num" aria-label="2 by 2 table">
+          <tr><th></th><th>This problem</th><th>Other problems</th></tr>
+          <tr><th>${pc}</th><td class="a">${NF.format(r.a)}</td><td>${NF.format(r.b)}</td></tr>
+          <tr><th>Other device types</th><td>${NF.format(r.c)}</td><td>${NF.format(r.d)}</td></tr>
+        </table>
+        <ul class="stats num">
+          <li><span>ROR (95% CI)</span><span>${fmt(r.ror)} (${fmt(r.rorLo)}–${fmt(r.rorHi)})</span></li>
+          <li><span>PRR (95% CI)</span><span>${fmt(r.prr)} (${fmt(r.prrLo)}–${fmt(r.prrHi)})</span></li>
+          <li><span>χ² (Yates)</span><span>${fmt(r.chi2, 1)}</span></li>
+          <li><span>IC (IC025)</span><span>${fmt(r.ic)} (${fmt(r.ic025)})</span></li>
+          <li><span>Expected reports</span><span>${fmt(r.expected, 1)}</span></li>
+        </ul>
+      </div>
+      <figure><svg class="chart" id="pairTrend" viewBox="0 0 900 150" role="img" aria-label="Reports with this problem per year"></svg>
+        <figcaption>Reports of ${pc} with this problem, per year received</figcaption></figure>
+    </div>
+    <div class="reports" id="reports"><p class="note">Loading the newest reports…</p></div>`;
+  $("closeDrawer").onclick = () => { state.selected = null; d.hidden = true; document.querySelectorAll("#resBody tr.sel").forEach(t => t.classList.remove("sel")); };
+  d.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  try {
+    const tr = await pairTrend(q, f, pc, kind, code);
+    if (my !== pairSeq) return;
+    drawStacked($("pairTrend"), tr, f, { h: 150 });
+    const list = await reportList(q, f, pc, kind, code, M.columns);
+    if (my !== pairSeq) return;
+    const src = { M: "Manufacturer", U: "User facility", D: "Distributor", P: "Voluntary" };
+    const ev = Object.fromEntries(EVENTS.map(e => [e.id, e.label]));
+    $("reports").innerHTML = list.reports.length ? `<p class="note">The ${NF.format(list.reports.length)} newest reports in the selection. Each link opens the report on the FDA MAUDE website, with the narrative.</p>
+      <div class="tablewrap"><table class="list"><thead><tr><th>Report</th><th>Received</th><th>Event</th><th>Source</th><th>Brand</th><th>Manufacturer</th></tr></thead><tbody>
+      ${list.reports.map(x => `<tr><td><a href="https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/detail.cfm?mdrfoi__id=${x.k}&pc=${pc}" target="_blank" rel="noopener">${x.k}</a></td>
+        <td class="date">${esc(x.received)}</td><td>${ev[x.ev] || ""}</td><td>${esc(src[x.src] || x.src || "")}</td>
+        <td class="txt">${esc(x.brand)}</td><td class="txt">${esc(x.mfr)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="note">No report in the selected years and event types was found among the ${NF.format(list.scanned)} newest reports of this pair. Widen the year range to see older reports.</p>`;
+  } catch (e) {
+    console.error(e); if (my === pairSeq) $("reports").innerHTML = `<p class="note">The reports could not be loaded: ${esc(e.message || e)}</p>`;
+  }
+}
+
+/* ------------------------------------------------------------------ cohort builder */
+const hasText = () => Boolean(M.tables.text_pc);
+const schema = () => M.reports_schema || [];
+
+function showView() {
+  document.querySelectorAll(".views button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === state.view)));
+  $("signalsView").hidden = state.view !== "signals";
+  $("reportsView").hidden = state.view !== "reports";
+}
+
+function buildCohortForm() {
+  const R = new Set(schema().map(x => x[0]));
+  document.querySelectorAll(".views button").forEach(b => b.addEventListener("click", () => { state.view = b.dataset.view; saveUrl(); showView(); }));
+  if (!M.tables.reports) {
+    $("cohortForm").innerHTML = `<p class="note">The report table is missing. Run the pipeline stage <code>site</code> again with this version of the pipeline.</p>`;
+    return;
+  }
+  $("cSrc").innerHTML = SOURCES.map(x => `<label class="chip" style="--c:var(--teal)"><input type="checkbox" value="${x.id}" checked><span class="dot"></span>${x.label}</label>`).join("");
+  $("cD0").value = `${state.y0}-01-01`; $("cD1").value = `${state.y1}-12-31`;
+  $("cD0").min = $("cD1").min = `${state.yMin}-01-01`; $("cD0").max = $("cD1").max = `${state.yMax}-12-31`;
+  const off = (id, ok, why) => { if (!ok) { $(id).disabled = true; $(id).closest("label").title = why; } };
+  off("cInitial", R.has("type_of_report"), "The data has no type-of-report column.");
+  off("cNoSummary", R.has("summary_report"), "The data has no summary-report column.");
+  off("cIncl", hasText(), "The narratives are not built.");
+  off("cExcl", hasText(), "The narratives are not built.");
+  if (!hasText()) { $("cCsvText").disabled = $("cSample").disabled = true; }
+  const note = () => {
+    const pcs = pcList($("cPcs").value);
+    const parts = [];
+    if (!hasText()) parts.push("The narratives are not built, so the narrative filters and the narrative downloads are off. Build them with the pipeline option --with-text.");
+    else if (termList($("cIncl").value).length || termList($("cExcl").value).length) {
+      const mb = pcs.reduce((t, pc) => t + (products.find(x => x.pc === pc)?.text_bytes || 0), 0) / 1e6 / 12;
+      parts.push(`The narrative filters read the narratives of ${pcs.join(", ") || "the product codes"}: ${mb < 1 ? "less than 1 MB" : `about ${fmt(mb, 0)} MB`} to download.`);
+    }
+    const bad = String($("cPcs").value).toUpperCase().split(/[\s,;]+/).filter(x => x && !products.some(p => p.pc === x));
+    if (bad.length) parts.push(`Not found: ${bad.join(", ")}.`);
+    $("cNote").textContent = parts.join(" ");
+  };
+  ["cPcs", "cIncl", "cExcl"].forEach(id => $(id).addEventListener("input", note));
+  note();
+  $("cohortForm").addEventListener("submit", e => { e.preventDefault(); runCohort(); });
+  $("cCsv").onclick = () => exportCohort("all", false);
+  $("cCsvText").onclick = () => exportCohort("all", true);
+  $("cSample").onclick = () => exportCohort("sample", true);
+  $("cDef").onclick = () => download(new Blob([JSON.stringify(cohortDefinition(), null, 2)], { type: "application/json" }), `${fileStem()}_definition.json`);
+}
+
+function readCohort() {
+  const int = v => (v === "" || v === null) ? null : Math.trunc(+v);
+  return {
+    pcs: pcList($("cPcs").value), d0: isoDate($("cD0").value), d1: isoDate($("cD1").value), ev: [...state.ev],
+    src: [...$("cSrc").querySelectorAll("input:checked")].map(i => i.value),
+    initial: $("cInitial").checked, noSummary: $("cNoSummary").checked,
+    brand: $("cBrand").value.trim(), mfr: $("cMfr").value.trim(),
+    dpc: int($("cDpc").value), ppc: int($("cPpc").value),
+    incl: hasText() ? termList($("cIncl").value) : [], excl: hasText() ? termList($("cExcl").value) : [],
+  };
+}
+const fileStem = () => { const c = state.cohort || readCohort(); return `maude_${c.pcs.join("-") || "cohort"}_${(c.d0 || "").slice(0, 4)}-${(c.d1 || "").slice(0, 4)}`; };
+
+function cohortDefinition() {
+  const c = state.cohort || readCohort();
+  return {
+    tool: "MAUDE Signal Explorer", data_through: M.data_through, data_built: M.created,
+    cohort: c, labels: {
+      event_types: c.ev.map(e => EVENTS.find(x => x.id === e)?.label),
+      report_sources: c.src.map(x => SOURCES.find(s => s.id === x)?.label),
+    },
+    notes: ["One row per report (MDR_REPORT_KEY). A report with two selected product codes is counted once.",
+            "Dates are dates received by the FDA. Event types are as reported (death, injury, malfunction, other, no answer).",
+            "Narrative filters: a report is included if any of its narrative texts contains any term (case-insensitive substring); left out if any text contains any excluded term.",
+            "Random sample: the reports with the smallest fixed hash of the report key; the same data version gives the same sample.",
+            "Possible duplicates: same product code, event date, manufacturer and brand."],
+    sql_where: cohortWhere(c, schema(), hasText()),
+  };
+}
+
+let cohortSeq = 0;
+async function runCohort() {
+  const c = readCohort(), my = ++cohortSeq;
+  if (!c.pcs.length) { $("cNote").textContent = "Type at least one product code, for example LKK."; return; }
+  if (!c.ev.length) { $("cNote").textContent = "Select at least one event type above."; return; }
+  if (!c.src.length) { $("cNote").textContent = "Select at least one report source."; return; }
+  state.cohort = c;
+  status("Finding the reports…");
+  try {
+    const sum = await cohortSummary(q, c, schema(), hasText());
+    const rows = sum.n ? await cohortRows(q, c, schema(), hasText(), "newest", 200) : [];
+    if (my !== cohortSeq) return;
+    renderCohort(sum, rows);
+    status("");
+  } catch (e) { console.error(e); status(`The query failed: ${e.message || e}`); }
+}
+
+function renderCohort(sum, rows) {
+  $("cResult").hidden = false;
+  const li = (n, label, cls = "") => `<li class="${cls}"><strong>${NF.format(n || 0)}</strong> ${label}</li>`;
+  $("cFacts").innerHTML = li(sum.n, "reports") + li(sum.deaths, "deaths", "death") + li(sum.injuries, "injuries") + li(sum.malfunctions, "malfunctions")
+    + (sum.dup_reports ? li(sum.dup_reports, `in ${NF.format(sum.dup_groups)} groups of possible duplicates`) : "")
+    + (sum.n ? `<li>Received ${esc(sum.first)} to ${esc(sum.last)}</li>` : "");
+  const tooMany = sum.n > MAX_TEXT_EXPORT;
+  $("cCsvText").disabled = !hasText() || !sum.n || tooMany;
+  $("cSample").disabled = !hasText() || !sum.n;
+  $("cCsv").disabled = !sum.n;
+  $("cExportNote").textContent = !sum.n ? "No report matches. Widen the dates, select more event types or report sources, or remove a text filter."
+    : tooMany ? `The cohort has more than ${NF.format(MAX_TEXT_EXPORT)} reports, so the download with narratives is off. Download a random sample, or narrow the filters.`
+    : "The table shows the 200 newest reports. The downloads contain all columns, the problem terms and the possible-duplicate group.";
+  const src = Object.fromEntries(SOURCES.map(x => [x.id, x.label])), ev = Object.fromEntries(EVENTS.map(e => [e.id, e.label]));
+  const pc0 = state.cohort.pcs[0];
+  $("cHead").innerHTML = ["Report", "Received", "Event", "Source", "Brand", "Manufacturer", "Model", "Device problems", "Duplicates"]
+    .map(h => `<th scope="col">${h}</th>`).join("");
+  $("cBody").innerHTML = rows.map(r => `<tr>
+    <td><a href="https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/detail.cfm?mdrfoi__id=${r.report_key}&pc=${esc(r.product_code || pc0)}" target="_blank" rel="noopener">${r.report_key}</a></td>
+    <td class="date">${esc(r.date_received)}</td><td>${ev[r.event] || ""}</td><td>${esc(src[r.report_source] || r.report_source || "")}</td>
+    <td class="txt">${esc(r.brand)}</td><td class="txt">${esc(r.manufacturer || r.manufacturer_g1)}</td><td class="txt">${esc(r.model)}</td>
+    <td class="txt">${esc(r.device_problem_terms || r.device_problem_codes)}</td>
+    <td>${r.dup_group ? `<span class="dup">group ${r.dup_group}</span>` : ""}</td></tr>`).join("")
+    || `<tr><td colspan="9" class="empty">No report matches the filters.</td></tr>`;
+}
+
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+async function exportCohort(mode, withText) {
+  const c = state.cohort; if (!c) return;
+  const n = Math.min(MAX_TEXT_EXPORT, Math.max(1, +$("cN").value | 0));
+  status(withText ? "Reading the narratives…" : "Preparing the file…");
+  try {
+    const rows = await cohortRows(q, c, schema(), hasText(), mode, mode === "sample" ? n : 0, Boolean(M.tables.classification));
+    let text = new Map();
+    if (withText) text = await cohortText(q);
+    const extra = withText ? ["event_description", "manufacturer_evaluation", "manufacturer_narrative", "other_text"] : [];
+    const keys = rows.length ? Object.keys(rows[0]) : [];
+    const cols = [...keys.map(k => ({ label: k, get: r => r[k] })),
+                  ...extra.map(k => ({ label: k, get: r => text.get(r.report_key)?.[k] ?? "" })),
+                  { label: "data_through", get: () => M.data_through }];
+    const csv = "\ufeff" + toCsv(rows, cols);  // BOM: Excel reads UTF-8 correctly
+    download(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${fileStem()}${mode === "sample" ? `_sample${rows.length}` : ""}${withText ? "_narratives" : ""}.csv`);
+    status("");
+  } catch (e) { console.error(e); status(`The download failed: ${e.message || e}`); }
+}
+
+/* ------------------------------------------------------------------ reporting timeliness */
+const ymToMonth = ym => `${Math.floor(ym / 100)}-${String(ym % 100).padStart(2, "0")}`;
+const monthToYm = v => /^\d{4}-\d{2}$/.test(v || "") ? +v.slice(0, 4) * 100 + +v.slice(5, 7) : null;
+const pct = (x, d = 1) => x === null || x === undefined || !Number.isFinite(x) ? "–" : `${(100 * x).toFixed(d)}`;
+let tlLast = null;
+
+function buildTimely() {
+  if (!M.tables.timely) {
+    $("tlForm").innerHTML = `<p class="note">The timeliness table is missing. Run the pipeline stages <code>classify</code> and <code>site</code> with this version of the pipeline.</p>`;
+    return;
+  }
+  $("tSrc").innerHTML = SOURCES.map(x => `<label class="chip" style="--c:var(--teal)"><input type="checkbox" value="${x.id}" ${x.id === "M" ? "checked" : ""}><span class="dot"></span>${x.label}</label>`).join("");
+  $("tCls").innerHTML = ["1", "2", "3"].map(c => `<label class="chip" style="--c:var(--teal)"><input type="checkbox" value="${c}" checked><span class="dot"></span>Class ${"I".repeat(+c)}</label>`).join("");
+  q(`SELECT DISTINCT specialty_code AS c, specialty AS s FROM cls WHERE specialty_code IS NOT NULL ORDER BY 2`).then(rows => {
+    $("tSpec").innerHTML = `<option value="">All specialties</option>` + rows.map(r => `<option value="${esc(r.c)}">${esc(r.s || r.c)}</option>`).join("");
+  });
+  if (!M.tables.classification) { $("tNeedClass").checked = false; $("tNeedClass").disabled = true; $("tNeedClass").closest("label").title = "Run the pipeline stage classify."; }
+  const ym1 = +M.data_through.slice(0, 4) * 100 + +M.data_through.slice(5, 7);
+  $("tM0").value = ymToMonth(Math.floor(ym1 / 100) * 100 - 400 + 1); $("tM1").value = ymToMonth(ym1);
+  $("tPreset").onclick = () => {
+    $("tM0").value = "2019-09"; $("tM1").value = "2022-12";
+    $("tSrc").querySelectorAll("input").forEach(i => { i.checked = i.value === "M"; });
+    $("tCls").querySelectorAll("input").forEach(i => { i.checked = true; });
+    ["tNoSummary", "tNoOther", "tNeedMfr"].forEach(id => { $(id).checked = true; });
+    if (!$("tNeedClass").disabled) $("tNeedClass").checked = true;
+    $("tInitial").checked = false; $("tPcs").value = ""; $("tSpec").value = "";
+    $("tNote").textContent = "Setup of Everhart et al.: manufacturer reports received 1 September 2019 to 31 December 2022, without summary reports, event type Other, missing manufacturer names or missing device class. Each MAUDE report key is one initial report, so the type-of-report filter stays off.";
+    runTimely();
+  };
+  $("tlForm").addEventListener("submit", e => { e.preventDefault(); $("tNote").textContent = ""; runTimely(); });
+  $("tByGroup").addEventListener("change", () => tlLast && runTop());
+  document.querySelectorAll("#tlResult [data-csv]").forEach(b => b.addEventListener("click", () => tlCsv(b.dataset.csv)));
+  $("tDef").onclick = () => download(new Blob([JSON.stringify(tlDefinition(), null, 2)], { type: "application/json" }), "maude_timeliness_definition.json");
+}
+
+function readTimely() {
+  return {
+    m0: monthToYm($("tM0").value), m1: monthToYm($("tM1").value),
+    src: [...$("tSrc").querySelectorAll("input:checked")].map(i => i.value),
+    classes: [...$("tCls").querySelectorAll("input:checked")].map(i => i.value),
+    pcs: pcList($("tPcs").value), spec: $("tSpec").value,
+    noSummary: $("tNoSummary").checked, noOther: $("tNoOther").checked, needMfr: $("tNeedMfr").checked,
+    needClass: $("tNeedClass").checked && !$("tNeedClass").disabled, initial: $("tInitial").checked,
+  };
+}
+
+function tlDefinition() {
+  const t = tlLast?.t || readTimely();
+  return {
+    tool: "MAUDE Signal Explorer, reporting timeliness", data_through: M.data_through, data_built: M.created,
+    analysis: { ...t, months: [ymToMonth(t.m0), ymToMonth(t.m1)] },
+    definitions: {
+      report_time: "Date received by the FDA (DATE_RECEIVED) minus the date the manufacturer became aware (DATE_MANUFACTURER_RECEIVED, G4), in days.",
+      categories: "Within 30 days (on time); 31 to 180 days; more than 180 days; missing or invalid (no awareness date, or negative report time).",
+      device: "First device of each report (lowest device sequence number): product code, brand, generic name.",
+      manufacturer: "Reporting manufacturer (G1 name), or the device manufacturer if G1 is empty; upper case, punctuation and legal suffixes removed. Groups join known divisions and acquired companies.",
+      characteristics: "FDA product classification file of the product code (device class, implant flag, life-sustaining or life-supporting flag, medical specialty).",
+      ci: "Wilson score interval, 95%.",
+      gini: "Gini coefficient of the monthly counts over all months in the period.",
+    },
+    sql_where: tlWhere(t).join(" AND "),
+  };
+}
+
+let tlSeq = 0;
+async function runTimely() {
+  const t = readTimely(), my = ++tlSeq;
+  if (!t.m0 || !t.m1 || t.m0 > t.m1) { $("tNote").textContent = "Select a first and a last month, with the first month before the last."; return; }
+  if (!t.src.length) { $("tNote").textContent = "Select at least one report source."; return; }
+  status("Calculating the report times…");
+  try {
+    const flow = await tlFlow(q, t);
+    const t1 = await tlTable1(q, t), mon = await tlMonthly(q, t), t4 = await tlByChar(q, t);
+    if (my !== tlSeq) return;
+    tlLast = { t, flow, t1, mon, t4 };
+    renderTimely();
+    await runTop();
+    status("");
+  } catch (e) { console.error(e); status(`The calculation failed: ${e.message || e}`); }
+}
+
+async function runTop() {
+  const { t } = tlLast, by = $("tByGroup").checked;
+  const [m, d] = [await tlTop(q, t, "mfr", by), await tlTop(q, t, "dev", by)];
+  tlLast.t2 = m; tlLast.t3 = d;
+  const row = (r, extra) => `<tr><td>${extra}</td><td>${NF.format(r.total)}</td><td>${NF.format(r.late)}</td><td>${pct(r.late_share)}</td><td>${pct(r.share_of_all_late)}</td></tr>`;
+  const head = first => `<thead><tr>${first}<th>Total reports</th><th>Late reports</th><th>Late, % of valid times</th><th>% of all late reports</th></tr></thead>`;
+  $("tT2").innerHTML = head("<th>Manufacturer</th>") + `<tbody>${m.rows.map(r => row(r, esc(r.manufacturer))).join("")}</tbody>`;
+  $("tT3").innerHTML = head("<th>Device (brand, generic name, manufacturer)</th>") +
+    `<tbody>${d.rows.map(r => row(r, `<strong>${esc(r.brand || "No brand")}</strong><br><span class="note">${esc(r.generic || "")}${r.generic ? ", " : ""}${esc(r.manufacturer || "")}</span>`)).join("")}</tbody>`;
+  $("tT2note").textContent = m.meanTop200 === null ? "" :
+    `Mean late share at manufacturer level, among the 200 manufacturers with the most reports: ${pct(m.meanTop200)}% (Everhart et al. report 23.4%).`;
+}
+
+function renderTimely() {
+  const { t, flow, t1, mon, t4 } = tlLast;
+  $("tlResult").hidden = false;
+  $("tFlow").innerHTML = `<li><span>Reports in the period${t.src.length < SOURCES.length ? ` (${t.src.map(x => SOURCES.find(s => s.id === x).label.toLowerCase()).join(", ")})` : ""}${t.pcs.length ? `, product codes ${esc(t.pcs.join(", "))}` : ""}</span><span>${NF.format(flow.n0)}</span></li>`
+    + flow.steps.filter(x => x.on).map(x => `<li><span>Left out: ${esc(x.label.toLowerCase())}</span><span>${x.removed ? "−" : ""}${NF.format(x.removed)}</span></li>`).join("")
+    + `<li class="total"><span>Study sample</span><span>${NF.format(flow.steps.at(-1).after)}</span></li>`;
+  const evName = { D: "Death", IN: "Injury", M: "Malfunction", O: "Other", U: "No answer", ALL: "Total" };
+  const cols = t1.map(r => r.ev);
+  const cell = (r, k) => `${NF.format(r[k])} (${pct(r[k] / r.n)})`;
+  const line = (label, f, cls = "") => `<tr class="${cls}"><td>${label}</td>${t1.map(f).map(v => `<td>${v}</td>`).join("")}</tr>`;
+  $("tT1").innerHTML = `<thead><tr><th>Characteristic</th>${cols.map(c => `<th>${evName[c]} (n=${NF.format(t1.find(r => r.ev === c).n)})</th>`).join("")}</tr></thead><tbody>`
+    + line("Unique manufacturers", r => NF.format(r.n_mfr)) + line("Unique devices", r => NF.format(r.n_dev))
+    + line("Report time in days, mean (SD)", r => r.mean === null ? "–" : `${fmt(r.mean, 1)} (${fmt(r.sd, 1)})`)
+    + line("Report time in days, median (IQR)", r => r.median === null ? "–" : `${fmt(r.median, 0)} (${fmt(r.q3 - r.q1, 0)})`)
+    + TL_CATS.map(c => line(`${c.label}, No. (%)`, r => cell(r, c.id))).join("") + "</tbody>";
+  // monthly chart
+  const months = monthsBetween(t.m0, t.m1), by = new Map(mon.map(r => [r.ym, r]));
+  const series = TL_CATS.map(c => ({ ...c, values: months.map(m => by.get(m)?.[c.id] || 0) }));
+  drawSeries($("tChart"), months, series, {
+    fmtLabel: ymToMonth, tickLabel: m => String(Math.floor(m / 100)),
+    tick: (m, i, n) => m % 100 === 1 && (n <= 48 || Math.floor(m / 100) % Math.ceil(n / 120) === 0) || i === 0,
+  });
+  const late = months.map(m => (by.get(m)?.late180 || 0) + (by.get(m)?.late181 || 0)), ont = months.map(m => by.get(m)?.ontime || 0);
+  const gL = gini(late), gO = gini(ont);
+  $("tChartKey").innerHTML = TL_CATS.map(c => `<span class="key" style="--c:${c.color}"><i></i>${c.label}</span>`).join("")
+    + `<span>Gini coefficient of the monthly counts: late reports ${gL === null ? "–" : gL.toFixed(3)}, on-time reports ${gO === null ? "–" : gO.toFixed(3)} (Everhart et al.: 0.554 and 0.278)</span>`;
+  tlLast.gini = { late: gL, ontime: gO };
+  // late by characteristic
+  const ci = (x, n) => { const [p, a, b] = wilson(x, n); return p === null ? "–" : `${pct(p)} (${pct(a)} to ${pct(b)})`; };
+  const valName = (dim, v) => dim === "Device class" ? ({ 1: "Class I", 2: "Class II", 3: "Class III" }[v] || v) : v === "Y" ? "Yes" : v === "N" ? "No" : v;
+  let lastDim = "";
+  $("tT4").innerHTML = `<thead><tr><th>Characteristic</th><th>All: reports</th><th>All: late, % (95% CI)</th><th>Death: late, %</th><th>Injury: late, %</th><th>Malfunction: late, %</th></tr></thead><tbody>`
+    + t4.map(r => {
+      const h = r.dim !== lastDim ? `<tr class="head"><td colspan="6">${esc(r.dim)}</td></tr>` : ""; lastDim = r.dim;
+      return h + `<tr class="sub"><td>${esc(valName(r.dim, r.val))}</td><td>${NF.format(r.n)}</td><td>${ci(r.late, r.n)}</td>
+        <td>${r.n_D ? `${pct(r.late_D / r.n_D)} (n=${NF.format(r.n_D)})` : "–"}</td><td>${r.n_IN ? `${pct(r.late_IN / r.n_IN)} (n=${NF.format(r.n_IN)})` : "–"}</td>
+        <td>${r.n_M ? `${pct(r.late_M / r.n_M)} (n=${NF.format(r.n_M)})` : "–"}</td></tr>`;
+    }).join("") + "</tbody>";
+}
+
+function tlCsv(which) {
+  if (!tlLast) return;
+  const L = tlLast, name = { t1: "report_times_by_event", t2: "top_manufacturers", t3: "top_devices", t4: "late_by_characteristic" }[which];
+  let rows, cols;
+  if (which === "t1") { rows = L.t1; cols = Object.keys(rows[0] || {}).map(k => ({ label: k, get: r => r[k] })); }
+  if (which === "t4") {
+    rows = L.t4.map(r => { const [p, a, b] = wilson(r.late, r.n); return { ...r, late_share: p, ci_low: a, ci_high: b }; });
+    cols = Object.keys(rows[0] || {}).map(k => ({ label: k, get: r => r[k] }));
+  }
+  if (which === "t2" || which === "t3") { rows = (which === "t2" ? L.t2 : L.t3).rows; cols = Object.keys(rows[0] || {}).map(k => ({ label: k, get: r => r[k] })); }
+  if (!rows?.length) return;
+  cols.push({ label: "months", get: () => `${ymToMonth(L.t.m0)} to ${ymToMonth(L.t.m1)}` }, { label: "data_through", get: () => M.data_through });
+  download(new Blob(["\ufeff" + toCsv(rows, cols)], { type: "text/csv;charset=utf-8" }), `maude_timeliness_${name}_${L.t.m0}-${L.t.m1}.csv`);
+}
+
+let resizeTimer;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => document.querySelectorAll("svg.chart").forEach(svg => {
+    if (svg.__chart) drawStacked(svg, ...svg.__chart);
+    if (svg.__series) drawSeries(svg, ...svg.__series);
+  }), 150);
+});
+
+start();
+</script>
+</body>
+</html>

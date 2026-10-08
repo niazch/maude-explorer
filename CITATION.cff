@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "MAUDE Signal Explorer"
+version: "0.4"
+date-released: "2026-10-08"
+authors:
+  - family-names: "Chalabianloo"
+    given-names: "Niaz"
+    affiliation: "Muanda Lab, Department of Physiology and Pharmacology, Schulich School of Medicine & Dentistry, Western University"
+repository-artifact: "https://huggingface.co/datasets/Niazch/maude-explorer-data"
