@@ -143,6 +143,7 @@ figcaption { color: var(--muted); font-size: .85rem; margin-top: .25rem; display
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--teal); }
 .tools { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: center; padding: .9rem 0; }
 .tools input[type=search], .tools input[type=number], .tools select { padding: .4rem .55rem; border: 1.5px solid var(--line); border-radius: 6px; background: var(--surface); }
+.tools select { max-width: 100%; }
 .tools input[type=number] { width: 4.5rem; }
 .tools label { font-size: .9rem; color: var(--muted); display: inline-flex; align-items: center; gap: .4rem; }
 .tools .count { margin-left: auto; color: var(--muted); font-size: .9rem; }
@@ -221,6 +222,7 @@ tr.sig .forest .pt { fill: var(--amber); }
 .two { border-collapse: collapse; font-size: .9rem; width: auto; }
 .two th, .two td { border: 1px solid var(--line); padding: .4rem .65rem; text-align: right; white-space: nowrap; min-width: 0 !important; }
 .two th { color: var(--muted); font-weight: 400; text-align: left; }
+@media (max-width: 480px) { .two th { white-space: normal; } }
 .two td.a { background: var(--amber-soft); font-weight: 700; }
 .stats { list-style: none; padding: 0; margin: .75rem 0 0; font-size: .92rem; }
 .stats li { display: flex; justify-content: space-between; gap: 1rem; padding: .15rem 0; border-bottom: 1px dotted var(--line); }
@@ -259,7 +261,7 @@ tr.sig .forest .pt { fill: var(--amber); }
     <div class="methodsbody">
       <p><strong>Source.</strong> FDA MAUDE medical device reports (download files), cleaned and checked by the pipeline. Counts are distinct reports. Years are years received by the FDA.</p>
       <p><strong>2×2 table.</strong> For a device type (product code) and a problem code: <em>a</em> = reports with both, <em>b</em> = reports with the device type and another problem code, <em>c</em> = reports with the problem code and another device type, <em>d</em> = all other reports. Only reports with at least one problem code of the selected kind (device or patient) are in the table.</p>
-      <p><strong>Statistics.</strong> ROR with 95% CI (log method). PRR with χ² (Yates). IC with IC025 (BCPNN, simplified formula: IC025 = IC − 3.3(a+0.5)<sup>−½</sup> − 2(a+0.5)<sup>−3/2</sup>). If a cell is 0, the ROR and PRR use a 0.5 correction in each cell.</p>
+      <p><strong>Statistics.</strong> ROR with 95% CI (log method). PRR with χ² (Yates). IC with IC025 (BCPNN, simplified formula: IC025 = IC − 3.3(a+0.5)<sup>−½</sup> − 2(a+0.5)<sup>−3/2</sup>). If a cell is 0, the ROR and PRR use a 0.5 correction in each cell. Fisher's exact test, one-sided (more reports than expected), with Benjamini-Hochberg q-values (false discovery rate) over all problem codes in the table; the display filters do not change the q-values.</p>
       <p><strong>Limits.</strong> MAUDE is a passive reporting system. A report does not show that the device caused the event. The data cannot give incidence rates. One event can have more than one report (manufacturer, user facility, voluntary). Reporting changes with recalls, litigation, summary reporting programs and code changes (for example, the code revisions of 2009 and 2019–2021). A signal is a hypothesis for review, not a conclusion.</p>
     </div>
   </details>
@@ -434,12 +436,12 @@ tr.sig .forest .pt { fill: var(--amber); }
 </main>
 <footer class="foot">
   <div>
-    <p><strong>MAUDE Signal Explorer</strong>, version 0.4, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
+    <p><strong>MAUDE Signal Explorer</strong>, version 0.5, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
     <p>Department of Physiology and Pharmacology, Schulich School of Medicine &amp; Dentistry, Western University, London, Ontario, Canada.</p>
   </div>
   <div>
     <p>Data: U.S. Food and Drug Administration, MAUDE download files (public data). This tool is not affiliated with or endorsed by the FDA. A report in MAUDE does not prove that a device caused an event.</p>
-    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.4) [software]. Muanda Lab, Western University; 2026.</p>
+    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.5) [software]. Muanda Lab, Western University; 2026.</p>
   </div>
 </footer>
 <p id="status" role="status" aria-live="polite"></p>
@@ -462,10 +464,12 @@ const EVENTS = [
 const EVENT_IDS = EVENTS.map(e => e.id);
 const KIND = { dp: { type: "device", label: "Device problems" }, pp: { type: "patient", label: "Patient problems" } };
 
+const FDR_LEVEL = 0.05;
 const CRITERIA = {
   ror: { label: "ROR lower 95% limit above 1, 3+ reports", test: r => r.a >= 3 && r.rorLo > 1 },
   prr: { label: "PRR 2+, χ² 4+, 3+ reports (Evans)", test: r => r.a >= 3 && r.prr >= 2 && r.chi2 >= 4 },
   ic: { label: "IC025 above 0", test: r => r.ic025 > 0 },
+  fdr: { label: "FDR q below 0.05 (Fisher), 3+ reports", test: r => r.a >= 3 && r.lnQ < Math.log(FDR_LEVEL) },
 };
 
 function safePc(pc) { return /^[A-Z0-9]{3}$/.test(pc || "") ? pc : null; }
@@ -501,7 +505,117 @@ function disp(a, nP, nE, N) {
     prr, prrLo: Math.exp(Math.log(prr) - 1.96 * sp), prrHi: Math.exp(Math.log(prr) + 1.96 * sp),
     chi2: den > 0 ? N * num * num / den : 0,
     ic, ic025: ic - 3.3 * Math.pow(a + 0.5, -0.5) - 2 * Math.pow(a + 0.5, -1.5),
+    lnP: fisherGreaterLnP(a, nP, nE, N),
   };
+}
+
+/* Fisher's exact test (one-sided) and Benjamini-Hochberg q-values. All probabilities are natural logarithms:
+   MAUDE counts give p-values far below 1e-300, which are 0 as JavaScript numbers.
+   dhyper and phyper are a port of the R nmath library (R 4.3: dbinom.c, dhyper.c, phyper.c, stirlerr.c, bd0.c),
+   which uses the saddle-point method of Loader (2000) and stays accurate for N = 26 million. */
+const STIRLERR_INT = [0, 0.08106146679532725821967, 0.04134069595540929409382, 0.02767792568499833914879,
+  0.02079067210376509311152, 0.01664469118982119216319, 0.01387612882307074799875, 0.01189670994589177009506,
+  0.01041126526197209649748, 0.009255462182712732917729, 0.008330563433362871256469, 0.007573675487951840794972,
+  0.006942840107209529865664, 0.00640899418800420706844, 0.005951370112758847735624, 0.005554733551962801371039];
+const LN_2PI = 1.837877066409345483560659472811;
+
+function stirlerr(n) {  // ln(n!) - ln(sqrt(2 pi n) (n/e)^n), integer n
+  if (n <= 15) return STIRLERR_INT[n];
+  const S0 = 1 / 12, S1 = 1 / 360, S2 = 1 / 1260, S3 = 1 / 1680, S4 = 1 / 1188, nn = n * n;
+  if (n > 500) return (S0 - S1 / nn) / n;
+  if (n > 80) return (S0 - (S1 - S2 / nn) / nn) / n;
+  if (n > 35) return (S0 - (S1 - (S2 - S3 / nn) / nn) / nn) / n;
+  return (S0 - (S1 - (S2 - (S3 - S4 / nn) / nn) / nn) / nn) / n;
+}
+
+function bd0(x, np) {  // x ln(x/np) + np - x, accurate when x is near np
+  if (Math.abs(x - np) < 0.1 * (x + np)) {
+    let v = (x - np) / (x + np), s = (x - np) * v;
+    if (Math.abs(s) < Number.MIN_VALUE) return s;
+    let ej = 2 * x * v;
+    v *= v;
+    for (let j = 1; j < 1000; j++) {
+      ej *= v;
+      const s1 = s + ej / (2 * j + 1);
+      if (s1 === s) return s1;
+      s = s1;
+    }
+  }
+  return x * Math.log(x / np) + np - x;
+}
+
+function lnDbinomRaw(x, n, p, q) {
+  if (p === 0) return x === 0 ? 0 : -Infinity;
+  if (q === 0) return x === n ? 0 : -Infinity;
+  if (x === 0) return n === 0 ? 0 : p < 0.1 ? -bd0(n, n * q) - n * p : n * Math.log(q);
+  if (x === n) return q < 0.1 ? -bd0(n, n * p) - n * q : n * Math.log(p);
+  if (x < 0 || x > n) return -Infinity;
+  const lc = stirlerr(n) - stirlerr(x) - stirlerr(n - x) - bd0(x, n * p) - bd0(n - x, n * q);
+  return lc - 0.5 * (LN_2PI + Math.log(x) + Math.log1p(-x / n));
+}
+
+function lnDhyper(x, r, b, n) {  // ln P(X = x): n draws from r red and b black balls
+  if (n < x || r < x || n - x > b) return -Infinity;
+  if (n === 0) return x === 0 ? 0 : -Infinity;
+  const p = n / (r + b), q = (r + b - n) / (r + b);
+  return lnDbinomRaw(x, r, p, q) + lnDbinomRaw(n - x, b, p, q) - lnDbinomRaw(n, r + b, p, q);
+}
+
+const log1mexp = x => x > -Math.LN2 ? Math.log(-Math.expm1(x)) : Math.log1p(-Math.exp(x));  // ln(1 - e^x)
+
+function lnPhyper(x, NR, NB, n, lowerTail) {  // ln P(X <= x), or ln P(X > x) if lowerTail is false
+  if (x * (NR + NB) > n * NR) { [NR, NB] = [NB, NR]; x = n - x - 1; lowerTail = !lowerTail; }  // sum the smaller tail
+  if (x < 0 || x < n - NB) return lowerTail ? -Infinity : 0;
+  if (x >= NR || x >= n) return lowerTail ? 0 : -Infinity;
+  const d = lnDhyper(x, NR, NB, n);
+  if (d === -Infinity) return lowerTail ? -Infinity : 0;
+  let sum = 0, term = 1;
+  for (let k = x; k > 0 && term >= Number.EPSILON * sum; k--) {
+    term *= k * (NB - n + k) / (n + 1 - k) / (NR + 1 - k);
+    sum += term;
+  }
+  const lp = d + Math.log1p(sum);
+  return lowerTail ? lp : log1mexp(lp);
+}
+
+/* One-sided Fisher exact test: ln P(A >= a) under independence (R: fisher.test(alternative = "greater")).
+   NaN for counts that cannot form a 2x2 table. */
+function fisherGreaterLnP(a, nP, nE, N) {
+  const ok = [a, nP, nE, N].every(v => Number.isInteger(v) && v >= 0);
+  if (!ok || a > nP || a > nE || nP > N || nE > N || nP + nE - a > N) return NaN;
+  return a === 0 ? 0 : lnPhyper(a - 1, nE, N - nE, nP, false);
+}
+
+/* Benjamini-Hochberg step-up q-values from ln p (R: p.adjust(method = "BH")). NaN stays NaN and is not counted in m. */
+function bhLnQ(lnP) {
+  const idx = [];
+  lnP.forEach((v, i) => { if (!Number.isNaN(v)) idx.push(i); });
+  idx.sort((i, j) => (lnP[i] - lnP[j]) || (i - j));
+  const out = lnP.map(() => NaN), lnM = Math.log(idx.length);
+  let run = 0;
+  for (let k = idx.length - 1; k >= 0; k--) {
+    run = Math.min(run, lnP[idx[k]] + lnM - Math.log(k + 1));
+    out[idx[k]] = run;
+  }
+  return out;
+}
+
+/* The family of the FDR correction: all rows of one signal table (every problem code with at least one report for
+   the product code in the selected years and event types). The display filters do not change it. */
+function withFdr(rows) {
+  const lq = bhLnQ(rows.map(r => r.lnP));
+  return rows.map((r, i) => ({ ...r, lnQ: lq[i] }));
+}
+
+/* A probability given as ln, as text with sig significant digits; works below 1e-308 too ("2.1e-4521"). */
+function fmtLnP(ln, sig = 2) {
+  if (Number.isNaN(ln) || ln === undefined || ln === null) return "";
+  if (ln === -Infinity) return "0";
+  if (ln >= Math.log(1e-3)) return String(Number(Math.exp(ln).toPrecision(sig)));
+  const l10 = ln / Math.LN10;
+  let e = Math.floor(l10), mant = Number(Math.pow(10, l10 - e).toPrecision(sig));
+  if (mant >= 10) { mant /= 10; e += 1; }
+  return `${mant.toFixed(sig - 1)}e${e}`;
 }
 
 async function signalTable(q, f, pc, kind) {
@@ -513,7 +627,8 @@ async function signalTable(q, f, pc, kind) {
     FROM a JOIN e USING (c) LEFT JOIN dict d ON d.CODE = a.c AND d.CODE_TYPE = '${KIND[kind].type}'`);
   const [{ np }] = await q(`SELECT coalesce(sum(n), 0)::DOUBLE AS np FROM pc_${kind} WHERE pc = '${pc}' AND ${F}`);
   const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM totals WHERE ${F}`);
-  return { nP: np, N: nn, rows: rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) })) };
+  const out = withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) })));
+  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out };
 }
 
 async function productFacts(q, f, pc) {
@@ -1017,7 +1132,7 @@ async function refresh() {
     .filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
   if (!state.ev.length) {
     $("pFacts").innerHTML = ""; $("trend").innerHTML = ""; $("trendKey").innerHTML = "";
-    $("resBody").innerHTML = `<tr><td colspan="9" class="empty">Select at least one event type.</td></tr>`;
+    $("resBody").innerHTML = `<tr><td colspan="${COLS.length}" class="empty">Select at least one event type.</td></tr>`;
     $("count").textContent = ""; $("drawer").hidden = true; return;
   }
   status("Calculating…");
@@ -1119,6 +1234,7 @@ const COLS = [
   { key: "prr", label: "PRR", num: true },
   { key: "chi2", label: "χ²", num: true },
   { key: "ic025", label: "IC025", num: true },
+  { key: "lnQ", label: "q (FDR)", num: true, asc: true, title: "Benjamini-Hochberg q-value of the one-sided Fisher exact test, over all problem codes in this table" },
   { key: "sig", label: "Signal" },
 ];
 const FMIN = 0.1, FMAX = 100, FW = 150;
@@ -1165,11 +1281,11 @@ function renderTable() {
   $("resHead").innerHTML = COLS.map(c => {
     const s = state.sort.key === c.key ? ` aria-sort="${state.sort.dir > 0 ? "ascending" : "descending"}"` : "";
     const arrow = state.sort.key === c.key ? (state.sort.dir > 0 ? " ▲" : " ▼") : "";
-    return `<th scope="col" class="${c.forest ? "forest" : ""}"${s}><button data-key="${c.key}">${c.label}${arrow}</button>${c.forest ? `<div style="margin-top:.3rem">${forestHeader()}</div>` : ""}</th>`;
+    return `<th scope="col" class="${c.forest ? "forest" : ""}"${s}><button data-key="${c.key}"${c.title ? ` title="${esc(c.title)}"` : ""}>${c.label}${arrow}</button>${c.forest ? `<div style="margin-top:.3rem">${forestHeader()}</div>` : ""}</th>`;
   }).join("");
   $("resHead").querySelectorAll("button").forEach(b => b.onclick = () => {
     const k = b.dataset.key;
-    state.sort = state.sort.key === k ? { key: k, dir: -state.sort.dir } : { key: k, dir: k === "term" ? 1 : -1 };
+    state.sort = state.sort.key === k ? { key: k, dir: -state.sort.dir } : { key: k, dir: k === "term" || COLS.find(c => c.key === k)?.asc ? 1 : -1 };
     renderTable();
   });
   const rows = visibleRows(), res = state.result;
@@ -1184,7 +1300,8 @@ function renderTable() {
   $("resBody").innerHTML = rows.slice(0, 1500).map(r => `<tr data-code="${r.code}" class="${r.sig ? "sig" : ""} ${r.a < 3 ? "few" : ""} ${state.selected === r.code ? "sel" : ""}" tabindex="0">
     <td>${codeLabel(r)}</td><td class="num">${NF.format(r.a)}</td><td class="num">${fmt(r.expected, 1)}</td>
     <td class="forest">${forestCell(r)}</td><td class="num">${fmt(r.ror)}</td><td class="num">${fmt(r.prr)}</td>
-    <td class="num">${fmt(r.chi2, 1)}</td><td class="num">${fmt(r.ic025)}</td><td>${r.sig ? '<span class="flag">Signal</span>' : ""}</td></tr>`).join("");
+    <td class="num">${fmt(r.chi2, 1)}</td><td class="num">${fmt(r.ic025)}</td><td class="num">${fmtLnP(r.lnQ)}</td>
+    <td>${r.sig ? '<span class="flag">Signal</span>' : ""}</td></tr>`).join("");
   $("resBody").onclick = e => { const tr = e.target.closest("tr[data-code]"); if (tr) openPair(+tr.dataset.code); };
   $("resBody").onkeydown = e => { if (e.key === "Enter") { const tr = e.target.closest("tr[data-code]"); if (tr) openPair(+tr.dataset.code); } };
 }
@@ -1197,7 +1314,9 @@ function exportCsv() {
     { label: "a", get: r => r.a }, { label: "b", get: r => r.b }, { label: "c", get: r => r.c }, { label: "d", get: r => r.d },
     { label: "expected", get: r => r.expected }, { label: "ror", get: r => r.ror }, { label: "ror_lo95", get: r => r.rorLo },
     { label: "ror_hi95", get: r => r.rorHi }, { label: "prr", get: r => r.prr }, { label: "chi2_yates", get: r => r.chi2 },
-    { label: "ic", get: r => r.ic }, { label: "ic025", get: r => r.ic025 }, { label: "signal", get: r => r.sig ? 1 : 0 },
+    { label: "ic", get: r => r.ic }, { label: "ic025", get: r => r.ic025 },
+    { label: "fisher_p_one_sided", get: r => fmtLnP(r.lnP, 6) }, { label: "q_bh", get: r => fmtLnP(r.lnQ, 6) },
+    { label: "fdr_m", get: () => state.result.m }, { label: "signal", get: r => r.sig ? 1 : 0 },
     { label: "years", get: () => `${state.y0}-${state.y1}` }, { label: "event_types", get: () => state.ev.join(" ") },
     { label: "signal_rule", get: () => CRITERIA[state.crit].label }, { label: "data_through", get: () => M.data_through },
   ];
@@ -1232,6 +1351,8 @@ async function openPair(code) {
           <li><span>PRR (95% CI)</span><span>${fmt(r.prr)} (${fmt(r.prrLo)}–${fmt(r.prrHi)})</span></li>
           <li><span>χ² (Yates)</span><span>${fmt(r.chi2, 1)}</span></li>
           <li><span>IC (IC025)</span><span>${fmt(r.ic)} (${fmt(r.ic025)})</span></li>
+          <li><span>Fisher exact p (one-sided)</span><span>${fmtLnP(r.lnP)}</span></li>
+          <li><span>q (FDR, ${NF.format(state.result.m)} codes)</span><span>${fmtLnP(r.lnQ)}</span></li>
           <li><span>Expected reports</span><span>${fmt(r.expected, 1)}</span></li>
         </ul>
       </div>
