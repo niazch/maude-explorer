@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "MAUDE Signal Explorer"
 version: "0.7"
-date-released: "2026-10-09"
+date-released: "2026-10-10"
 authors:
   - family-names: "Chalabianloo"
     given-names: "Niaz"

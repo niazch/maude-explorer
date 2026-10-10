@@ -1,0 +1,3 @@
+# Only index.html, README.md, CITATION.cff and .nojekyll belong here (written by deploy.py).
+*.txt
+*.log
