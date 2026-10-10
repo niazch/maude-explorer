@@ -3,7 +3,7 @@
 A browser-based research tool for the U.S. FDA MAUDE medical device adverse event reports: disproportionality
 signal detection, a cohort builder with narratives, and reporting-timeliness analysis. The analysis runs in the
 browser with DuckDB-WASM; the data come from the Hugging Face dataset
-[Niazch/maude-explorer-data](https://huggingface.co/datasets/Niazch/maude-explorer-data) (version `data-2026-09-30-v0.6.1`, reports received up to
+[Niazch/maude-explorer-data](https://huggingface.co/datasets/Niazch/maude-explorer-data) (version `data-2026-09-30-v0.6`, reports received up to
 2026-09-30).
 
 Built by Niaz Chalabianloo, Muanda Lab, Department of Physiology and Pharmacology, Schulich School of Medicine &
