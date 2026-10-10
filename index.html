@@ -794,12 +794,12 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
 </main>
 <footer class="foot">
   <div>
-    <p><strong>MAUDE Signal Explorer</strong>, version 0.6.2, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
+    <p><strong>MAUDE Signal Explorer</strong>, version 0.7, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
     <p>Department of Physiology and Pharmacology, Schulich School of Medicine &amp; Dentistry, Western University, London, Ontario, Canada.</p>
   </div>
   <div>
     <p>Data: U.S. Food and Drug Administration, MAUDE download files (public data). This tool is not affiliated with or endorsed by the FDA. A report in MAUDE does not prove that a device caused an event.</p>
-    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.6.2) [software]. Muanda Lab, Western University; 2026.</p>
+    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.7) [software]. Muanda Lab, Western University; 2026.</p>
   </div>
 </footer>
 <p id="status" role="status" aria-live="polite" hidden><span id="stMsg"></span><span id="stTime" aria-hidden="true"></span></p>
@@ -1278,6 +1278,115 @@ function tableFor(t, pcs) {
   return r.sql(use);
 }
 
+/* Direct file addresses (version 0.6.3). The data address of Hugging Face (.../resolve/<tag>/<file>) answers each
+   request with a redirect (302) to a signed address of the file server, and the browser does not keep the redirect: each
+   range request of DuckDB-WASM paid two round trips (measured by the author on 2026-10-10: 318 ms with the redirect,
+   149 ms without it; FRN Overview: 210 requests, about half of them redirects). So the page registers each Parquet file
+   in DuckDB-WASM under a fixed name (maude/<path>), first with its data address, and asks once per file for the final
+   address: a one-byte request that follows the redirect (response.url). The name then points to the final address. The
+   page asks again when 3/4 of the time of the signed address has passed (X-Amz-Date + X-Amz-Expires, or Expires; 10
+   minutes if the address does not say). Views and queries use the names, so a new address needs no new view (measured
+   with DuckDB-WASM 1.32.0: registerFileURL on a name that exists changes the address for the next query, also under a
+   view). A file gets its final address when a query needs it: the names in the SQL, and all files of a view after FROM
+   or JOIN; CREATE VIEW reads the schema of the first file only. If the request fails, the name keeps the data address
+   (the redirect still works) and the page tries again after 5 minutes. If a query cannot open a file (an expired address
+   gives HTTP 403, and DuckDB-WASM says "Opening file ... failed"), the page asks again for the addresses of the files of
+   that query and runs it once more. Without a redirect (a local server), the name keeps the data address. */
+const FILE_PREFIX = "maude/";
+const FILE_REFRESH = 0.75, FILE_DEFAULT_MS = 10 * 60e3, FILE_MIN_MS = 60e3, FILE_RETRY_MS = 5 * 60e3;
+const VIEW_TABLES = ["pair_dp", "pair_pp", "pc_dp", "pc_pp", "code_dp", "code_pp", "idx_dp", "idx_pp", "pc_all", "master", "device",
+  "reports", "text_pc", "timely", "tl_mfr", "tl_dev"];
+const START_TABLES = ["totals", "dictionary", "classification", "products"];  // read completely by start()
+function urlExpiry(u) {  // when a signed address expires (ms since 1970), or null
+  let sp;
+  try { sp = new URL(u).searchParams; } catch (e) { return null; }
+  const get = k => { for (const [a, v] of sp) if (a.toLowerCase() === k) return v; return null; };
+  const d = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(get("x-amz-date") || ""), e = get("x-amz-expires"), x = get("expires");
+  if (d && /^\d+$/.test(e || "")) return Date.UTC(+d[1], +d[2] - 1, +d[3], +d[4], +d[5], +d[6]) + 1000 * +e;
+  if (/^\d+$/.test(x || "")) return 1000 * +x;
+  return null;
+}
+const fileErr = err => /Opening file|Failed to open|HTTP|NetworkError|Failed to fetch|\b403\b/i.test(String(err?.message || err));
+function makeFiles({ base, register, fetchFn, now = () => Date.now(), limit = 12, views = {} }) {
+  const E = new Map(), stats = { resolved: 0, direct: 0, failed: 0 };
+  const nameOf = p => FILE_PREFIX + p;
+  const lit = p => "'" + nameOf(p).replace(/'/g, "''") + "'";
+  const nameRe = /'maude\/((?:[^']|'')+)'/g;
+  const viewRe = Object.keys(views).map(v => [v, new RegExp(`\\b(?:FROM|JOIN)\\s+${v}\\b`, "i")]);
+  async function init(paths) {
+    for (const p of new Set(paths)) {
+      const orig = new URL(p, base).href;
+      E.set(p, { orig, url: orig, refreshAt: 0, retryAt: 0, pending: null });
+      await register(nameOf(p), orig);
+    }
+  }
+  async function resolveOne(p) {
+    const e = E.get(p), t0 = now();
+    try {
+      const r = await fetchFn(e.orig, { headers: { Range: "bytes=0-0" }, cache: "no-store" });
+      await r.arrayBuffer().catch(() => null);
+      if (r.status !== 206 && r.status !== 200) throw new Error(`HTTP ${r.status}`);
+      const final = r.url || e.orig;
+      if (final === e.orig) { e.refreshAt = Infinity; stats.direct++; }
+      else {
+        const until = urlExpiry(final) ?? t0 + FILE_DEFAULT_MS;
+        e.refreshAt = t0 + FILE_REFRESH * Math.max(FILE_MIN_MS, until - t0);
+        stats.resolved++;
+      }
+      e.url = final; e.retryAt = 0;
+    } catch (err) {  // the data address (with its redirect) always works
+      e.url = e.orig; e.refreshAt = 0; e.retryAt = t0 + FILE_RETRY_MS; stats.failed++;
+    }
+    await register(nameOf(p), e.url);
+  }
+  const start = p => { const e = E.get(p); if (!e.pending) e.pending = resolveOne(p).finally(() => { e.pending = null; }); return e.pending; };
+  async function ensure(paths) {  // the files get their final address (at most `limit` requests at a time)
+    const t = now(), ps = [...new Set(paths)].filter(p => E.has(p));
+    const busy = ps.filter(p => E.get(p).pending).map(p => E.get(p).pending);
+    const todo = ps.filter(p => !E.get(p).pending && E.get(p).refreshAt <= t && E.get(p).retryAt <= t);
+    let i = 0;
+    const worker = async () => { while (i < todo.length) await start(todo[i++]); };
+    await Promise.all([...busy, ...Array.from({ length: Math.min(limit, todo.length) }, worker)]);
+  }
+  function pathsInSql(sql, all = false) {  // the files that a query reads
+    const out = [...sql.matchAll(nameRe)].map(m => m[1].replace(/''/g, "'"));
+    if (!all && /^\s*CREATE\s+(OR\s+REPLACE\s+)?VIEW\b/i.test(sql)) return out.slice(0, 1);
+    for (const [v, re] of viewRe) if (re.test(sql)) out.push(...views[v]);
+    return out;
+  }
+  function queue(run) {  // one query at a time; its files get their final address first; one more try after a file error
+    let chain = Promise.resolve();
+    return sql => {
+      const job = chain.then(async () => {
+        await ensure(pathsInSql(sql));
+        try {
+          return await run(sql);
+        } catch (err) {
+          const ps = pathsInSql(sql, true);
+          if (!ps.length || !fileErr(err)) throw err;
+          for (const p of ps) { const e = E.get(p); if (e && !e.pending) { e.refreshAt = 0; e.retryAt = 0; } }
+          await ensure(ps);
+          return run(sql);
+        }
+      });
+      chain = job.catch(() => {});
+      return job;
+    };
+  }
+  return { init, ensure, pathsInSql, queue, lit, nameOf, stats, entry: p => E.get(p) };
+}
+/* The database side of the real page: every file of the manifest under its fixed name; the first file of each view
+   (CREATE VIEW reads its schema) and the small tables of start() get their final address at once, in parallel. */
+async function connectFiles({ M, base, register, fetchFn, run, reader = "read_parquet", now, limit }) {
+  const tables = Object.fromEntries(Object.entries(M.tables).filter(([, f]) => Array.isArray(f) && f.length));
+  const views = Object.fromEntries(VIEW_TABLES.filter(t => tables[t]).map(t => [t, tables[t]]));
+  const files = makeFiles({ base, register, fetchFn, now, limit, views });
+  await files.init(Object.values(tables).flat());
+  await files.ensure([...Object.values(views).map(f => f[0]), ...START_TABLES.flatMap(t => tables[t] || [])]);
+  const list = ps => `${reader}([${ps.map(files.lit).join(",")}])`;
+  return { files, q: files.queue(run), tableSql: t => list(tables[t]), fileSql: (t, idx) => list(idx.map(i => tables[t][i])) };
+}
+
 /* c = { pcs, d0, d1, ev, src, initial, noSummary, brand, mfr, dpc, ppc, incl, excl }; S = report table schema */
 function cohortWhere(c, S, hasText) {
   const R = new Set(S.map(x => x[0]));
@@ -1749,7 +1858,7 @@ function toCsv(rows, cols) {
   return [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(c.get(r))).join(","))].join("\n");
 }
 /* ================================================================== version 0.6: page analyses, charts and exports */
-const APP_VERSION = "0.6.2";
+const APP_VERSION = "0.7";
 const NF = new Intl.NumberFormat("en-US");
 const fmt = (v, d = 2) => !Number.isFinite(v) ? "–" : (Math.abs(v) >= 1000 ? NF.format(Math.round(v)) : v.toFixed(d));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -2350,6 +2459,39 @@ function countryName(code) {
   if (!/^[A-Z]{2}$/.test(code || "")) return code || "Not given";
   try { return new Intl.DisplayNames(["en"], { type: "region" }).of(code) || code; } catch (e) { return code; }
 }
+
+/* Stored first view (version 0.7). For the default selection of each product code (all years of the data, all event
+   types and report sources, no other filter), the tool precompute.mjs runs summaryOf with the real DuckDB engine and
+   stores the result in site/summary (one row per product code, JSON). The Overview then needs no copy of the reports
+   of the product code: that copy took most of the time of the Overview over the internet (with version 0.6.2: FRN 36 s,
+   DZE 72 s). The page uses a stored result only if (1) the selection is the default selection (the same WHERE text as
+   defaultCohort), and (2) the hash of the code of these functions in the page equals the stored hash (summaryHash: a
+   change of a definition makes the stored results old, and the page calculates as before). */
+const SUMMARY_FORMAT = 1;
+function defaultCohort(pc, y0, y1) {
+  return { pcs: [pc], y0, y1, d0: null, d1: null, ev: [...EVENT_IDS], src: [...SOURCE_IDS], initial: false, noSummary: false,
+           brand: "", mfr: "", dpc: null, ppc: null, incl: [], excl: [] };
+}
+function isDefaultCohort(c, info, S, hasText) {  // the same WHERE text (event types and sources in a fixed order)
+  if (!info || c.table || c.pcs.length !== 1 || !Number.isInteger(info.y0) || !Number.isInteger(info.y1)) return false;
+  const n = { ...c, ev: EVENT_IDS.filter(e => c.ev.includes(e)), src: SOURCE_IDS.filter(x => c.src.includes(x)) };
+  return cohortWhere(n, S, hasText) === cohortWhere(defaultCohort(c.pcs[0], info.y0, info.y1), S, hasText);
+}
+async function summaryOf(q, c, S, hasText, y0, y1) {
+  return { profile: await profileFacts(q, c, S, hasText), outcomes: await outcomeCounts(q, c, S, hasText),
+           serious: await yearlySeries(q, c, S, hasText, y0, y1, SERIOUS_SQL) };
+}
+function summaryHash() {  // FNV-1a (32 bit) of the code that decides the stored results
+  const src = [SUMMARY_FORMAT, defaultCohort, isDefaultCohort, summaryOf, cohortWhere, cohortCte, cohortBase, dupCounts, dupKey,
+    profileFacts, outcomeCounts, yearlySeries, wilson, SERIOUS_SQL, OUTCOMES, EVENT_IDS, SOURCE_IDS, SOURCES.map(s => s.id)]
+    .map(x => typeof x === "object" ? JSON.stringify(x) : String(x)).join("\n");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < src.length; i++) { h ^= src.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
+}
+// JSON without loss: NaN and infinite numbers as {"$num": "NaN"} (JSON.stringify would make them null)
+const encodeSummary = s => JSON.stringify(s, (k, v) => typeof v === "number" && !Number.isFinite(v) ? { $num: String(v) } : typeof v === "bigint" ? Number(v) : v);
+const decodeSummary = t => JSON.parse(t, (k, v) => v && typeof v === "object" && Object.keys(v).length === 1 && typeof v.$num === "string" ? Number(v.$num) : v);
 /* CORE END */
 
 /* ------------------------------------------------------------------ helpers */
@@ -2364,7 +2506,7 @@ const TABS = ["overview", "signals", "outcomes", "device", "trends", "narratives
 const SEL_MAX = selMax(navigator);
 const storage = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* no storage */ } } };
 
-let conn, M, products = [], q, tableSql = () => "", fileSql = t => t, brandsReady = null;
+let conn, M, products = [], q, tableSql = () => "", fileSql = t => t, brandsReady = null, FILES = null;
 const tabParam = params.get("tab");
 const state = {
   pc: safePc((params.get("pc") || "").toUpperCase()),
@@ -2569,15 +2711,10 @@ async function openDatabase() {
   URL.revokeObjectURL(workerUrl);
   await db.open(DB_CONFIG);
   conn = await db.connect();
-  let chain = Promise.resolve();  // one query at a time on the connection
-  q = sql => {
-    const run = chain.then(() => conn.query(sql)).then(t => t.toArray().map(row => row.toJSON()));
-    chain = run.catch(() => {});
-    return run;
-  };
-  const urlLit = p => `'${new URL(p, BASE).href.replace(/'/g, "''")}'`;
-  tableSql = t => "read_parquet([" + M.tables[t].map(urlLit).join(",") + "])";
-  fileSql = (t, idx) => "read_parquet([" + idx.map(i => urlLit(M.tables[t][i])).join(",") + "])";  // some files of t
+  // version 0.6.3: each file under a fixed name that points to its final address (no redirect per request; connectFiles)
+  ({ q, tableSql, fileSql, files: FILES } = await connectFiles({ M, base: BASE, fetchFn: (u, o) => fetch(u, o),
+    register: (name, url) => db.registerFileURL(name, url, duckdb.DuckDBDataProtocol.HTTP, false),
+    run: sql => conn.query(sql).then(t => t.toArray().map(row => row.toJSON())) }));
 }
 /* DB END */
 
@@ -2913,9 +3050,24 @@ const basics = () => memo("basics", async () => {
   const [facts, trend] = [await productFacts(q, f, state.pc), await productTrend(q, f, state.pc)];
   return { ...facts, trend };
 });
-const profile = () => memo("profile", async () => profileFacts(q, await analysisCohort(), schema(), hasText()));
-const outcomesData = () => memo("outcomes", async () => outcomeCounts(q, await analysisCohort(), schema(), hasText()));
-const yearly = (name, cond) => memo(`yearly:${name}`, async () => yearlySeries(q, await analysisCohort(), schema(), hasText(), state.y0, state.y1, cond));
+/* Version 0.7: the stored results of the default selection (precompute.mjs), or null. With them the Overview needs no
+   copy of the reports; the other tabs copy them as before. */
+const stored = () => memo("stored", async () => {
+  const info = M.summary;
+  if (!state.v06 || !info || !M.tables.summary || info.format !== SUMMARY_FORMAT || info.hash !== summaryHash()) return null;
+  if (!isDefaultCohort(cohortOf(), info, schema(), hasText())) return null;
+  try {
+    const rows = await q(`SELECT json FROM ${tableSql("summary")} WHERE pc = ${strLit(state.pc)}`);
+    return rows.length ? decodeSummary(rows[0].json) : null;
+  } catch (e) {  // the summary file cannot be read: calculate live (the same numbers, more time)
+    console.warn("MAUDE explorer: stored first view not used:", e);
+    return null;
+  }
+});
+const profile = () => memo("profile", async () => (await stored())?.profile ?? profileFacts(q, await analysisCohort(), schema(), hasText()));
+const outcomesData = () => memo("outcomes", async () => (await stored())?.outcomes ?? outcomeCounts(q, await analysisCohort(), schema(), hasText()));
+const yearly = (name, cond) => memo(`yearly:${name}`, async () => (cond === SERIOUS_SQL ? (await stored())?.serious : null)
+  ?? yearlySeries(q, await analysisCohort(), schema(), hasText(), state.y0, state.y1, cond));
 const testedYears = () => completeYears(state.y0, state.y1, M.data_through);
 
 /* ------------------------------------------------------------------ Overview */
