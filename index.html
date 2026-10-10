@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MAUDE Signal Explorer</title>
-<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.6/">
+<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.6.1/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231D5FA8'/><path d='M6 22h6l3-12 4 16 3-8h4' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -794,12 +794,12 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
 </main>
 <footer class="foot">
   <div>
-    <p><strong>MAUDE Signal Explorer</strong>, version 0.6, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
+    <p><strong>MAUDE Signal Explorer</strong>, version 0.6.1, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
     <p>Department of Physiology and Pharmacology, Schulich School of Medicine &amp; Dentistry, Western University, London, Ontario, Canada.</p>
   </div>
   <div>
     <p>Data: U.S. Food and Drug Administration, MAUDE download files (public data). This tool is not affiliated with or endorsed by the FDA. A report in MAUDE does not prove that a device caused an event.</p>
-    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.6) [software]. Muanda Lab, Western University; 2026.</p>
+    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.6.1) [software]. Muanda Lab, Western University; 2026.</p>
   </div>
 </footer>
 <p id="status" role="status" aria-live="polite" hidden><span id="stMsg"></span><span id="stTime" aria-hidden="true"></span></p>
@@ -1240,10 +1240,39 @@ const MAX_TEXT_EXPORT = 20000;
 // The CSV of all reports is made in the browser (DuckDB-WASM, then a text file): above this size it needs more memory
 // than a browser tab has.
 const MAX_CSV_EXPORT = 500000;
+/* A selection with up to SEL_MAX reports is copied into memory once; a larger one is read from the files for each
+   query. Measured with the limits of DuckDB-WASM (3.1 GB, 1 thread): the table of DZE (3.9 million reports, the largest
+   product code) needs 990 MB, making it about 1.5 GB, and every panel query on it passes with a limit of 2 GB.
+   navigator.deviceMemory: GB of the device (Chrome, Edge; at most 8). Safari and Firefox do not give it: on a computer
+   the page then uses the limit of 8 GB (reading a large selection from the files for each query is slow over the
+   internet), and on a phone or tablet the limit of 4 GB. */
+function selMax(nav) {
+  const touchMac = /Macintosh/.test(nav.userAgent || "") && (nav.maxTouchPoints || 0) > 1;  // an iPad gives a Mac name
+  const mobile = Boolean(nav.userAgentData?.mobile) || /Mobi|Android|iPhone|iPad|iPod/i.test(nav.userAgent || "") || touchMac;
+  const gb = nav.deviceMemory || (mobile ? 4 : 8);
+  return gb >= 8 ? 4000000 : gb >= 4 ? 1200000 : 600000;
+}
 const strLit = s => "'" + String(s).replace(/'/g, "''") + "'";
 const termList = s => [...new Set(String(s || "").split(/[,;\n]/).map(t => t.trim().toLowerCase()).filter(t => t.length >= 2))].slice(0, 25);
 const pcList = s => [...new Set(String(s || "").toUpperCase().split(/[\s,;]+/).filter(p => /^[A-Z0-9]{3}$/.test(p)))].slice(0, 25);
 const isoDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || "") ? s : null;
+
+/* The report table and the narratives are sorted by product code. With version 0.6.1 data, manifest.json gives the
+   smallest and the largest product code of each file (file_ranges), and a query of a selection reads only the files
+   whose range has a selected code. Each file costs about 3 HTTP requests before its data (size, end of the file,
+   footer), and every query opens its files again: for 23 files, about 70 requests for each query instead of 3 to 6.
+   FILE_RANGES[t] = { ranges: [[lo, hi], ...] in the order of the files, sql: indexes of the files -> FROM text }.
+   Without ranges (data of version 0.6), the view t with all files. */
+const FILE_RANGES = {};
+function tableFor(t, pcs) {
+  const r = FILE_RANGES[t];
+  if (!r || !pcs || !pcs.length) return t;
+  const has = ([lo, hi], p) => lo === null || hi === null || (p >= lo && p <= hi);
+  let use = r.ranges.map((x, i) => pcs.some(p => has(x, p)) ? i : -1).filter(i => i >= 0);
+  if (use.length === r.ranges.length) return t;
+  if (!use.length) use = [0];  // no file has these codes: one file gives the columns, and the filter gives no rows
+  return r.sql(use);
+}
 
 /* c = { pcs, d0, d1, ev, src, initial, noSummary, brand, mfr, dpc, ppc, incl, excl }; S = report table schema */
 function cohortWhere(c, S, hasText) {
@@ -1269,7 +1298,7 @@ function cohortWhere(c, S, hasText) {
   if (Number.isInteger(c.dpc) && c.dpc > 0) w.push(`list_contains(device_problem_codes, ${c.dpc})`);
   if (Number.isInteger(c.ppc) && c.ppc > 0) w.push(`list_contains(patient_problem_codes, ${c.ppc})`);
   if (hasText) {
-    const sub = terms => `report_key IN (SELECT k FROM text_pc WHERE pc IN (${c.pcs.map(strLit).join(",")}) AND (${terms.map(t => `contains(lower(text), ${strLit(t)})`).join(" OR ")}))`;
+    const sub = terms => `report_key IN (SELECT k FROM ${tableFor("text_pc", c.pcs)} WHERE pc IN (${c.pcs.map(strLit).join(",")}) AND (${terms.map(t => `contains(lower(text), ${strLit(t)})`).join(" OR ")}))`;
     if (c.incl.length) w.push(sub(c.incl));
     if (c.excl.length) w.push("NOT " + sub(c.excl));
   }
@@ -1309,9 +1338,9 @@ const dupJoin = (S, alias) => { const { cols, keyOf } = dupKey(S); return cols.m
    (DISTINCT ON did the same before, but DuckDB 1.4 lost rows of it in some query plans, for example next to a scalar
    subquery: 11,087 instead of 11,609 reports in a test. The anti join also keeps only two columns in memory.) */
 function cohortBase(c, S, hasText) {
-  const w = cohortWhere(c, S, hasText);
-  return c.pcs.length === 1 ? `SELECT * FROM reports WHERE ${w}`
-    : `SELECT * FROM reports ANTI JOIN (SELECT report_key AS k_, product_code AS pc_ FROM reports WHERE ${w}) d_
+  const w = cohortWhere(c, S, hasText), from = tableFor("reports", c.pcs);
+  return c.pcs.length === 1 ? `SELECT * FROM ${from} reports WHERE ${w}`
+    : `SELECT * FROM ${from} reports ANTI JOIN (SELECT report_key AS k_, product_code AS pc_ FROM ${from} r_ WHERE ${w}) d_
        ON d_.k_ = reports.report_key AND d_.pc_ < reports.product_code WHERE ${w}`;
 }
 /* The key of the possible-duplicate groups: product code, date of event, manufacturer and brand (lower case). */
@@ -1380,13 +1409,13 @@ async function cohortText(q) {
   const [r] = await q(`SELECT max(h) AS hmax, min(report_key)::DOUBLE AS kmin, max(report_key)::DOUBLE AS kmax,
                        string_agg(DISTINCT product_code, ',') AS pcs FROM cohort_sel`);
   if (r.hmax === null || r.hmax === undefined) return new Map();
-  const pcs = pcList(r.pcs).map(strLit).join(",");
+  const pcl = pcList(r.pcs), pcs = pcl.map(strLit).join(",");
   const rows = await q(`SELECT t.k::DOUBLE AS k,
       string_agg(t.text, ' ' ORDER BY t.text_key) FILTER (WHERE t.text_type = 'D') AS event_description,
       string_agg(t.text, ' ' ORDER BY t.text_key) FILTER (WHERE t.text_type = 'E') AS manufacturer_evaluation,
       string_agg(t.text, ' ' ORDER BY t.text_key) FILTER (WHERE t.text_type = 'N') AS manufacturer_narrative,
       string_agg(t.text, ' ' ORDER BY t.text_key) FILTER (WHERE t.text_type NOT IN ('D', 'E', 'N')) AS other_text
-    FROM text_pc t SEMI JOIN cohort_sel s ON t.k = s.report_key AND t.pc = s.product_code
+    FROM ${tableFor("text_pc", pcl)} t SEMI JOIN cohort_sel s ON t.k = s.report_key AND t.pc = s.product_code
     WHERE t.pc IN (${pcs}) AND t.h <= ${r.hmax | 0} AND t.k BETWEEN ${r.kmin} AND ${r.kmax}
     GROUP BY t.k`);
   return new Map(rows.map(x => [x.k, x]));
@@ -1582,7 +1611,7 @@ async function ngramTable(q, c, S, hasText, opts = {}) {
   const hmax = Number.isFinite(lim.hmax) ? lim.hmax : -1, pcs = pcList(lim.pcs || "");
   const rows = await q(`WITH ${cohortCte(c, S, hasText, false)},
     s AS (SELECT report_key, product_code FROM y ORDER BY h, report_key LIMIT ${sample}),
-    tx AS (SELECT t.k, t.text_key AS t, string_split_regex(lower(t.text), '[^a-z]+') AS ws FROM text_pc t
+    tx AS (SELECT t.k, t.text_key AS t, string_split_regex(lower(t.text), '[^a-z]+') AS ws FROM ${tableFor("text_pc", pcs.length ? pcs : ["---"])} t
            SEMI JOIN s ON t.k = s.report_key AND t.pc = s.product_code
            WHERE t.pc IN (${(pcs.length ? pcs : ["---"]).map(strLit).join(",")}) AND t.h <= ${hmax | 0}
              AND t.text_type IN (${(types.length ? types : ["-"]).map(strLit).join(",")})),
@@ -1716,7 +1745,7 @@ function toCsv(rows, cols) {
   return [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(c.get(r))).join(","))].join("\n");
 }
 /* ================================================================== version 0.6: page analyses, charts and exports */
-const APP_VERSION = "0.6";
+const APP_VERSION = "0.6.1";
 const NF = new Intl.NumberFormat("en-US");
 const fmt = (v, d = 2) => !Number.isFinite(v) ? "–" : (Math.abs(v) >= 1000 ? NF.format(Math.round(v)) : v.toFixed(d));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -2328,14 +2357,10 @@ const svgEl = (tag, attrs = {}) => {
 };
 const STALE = new Error("stale");
 const TABS = ["overview", "signals", "outcomes", "device", "trends", "narratives", "reports", "compare", "methods"];
-/* A selection with up to SEL_MAX reports is copied into memory once; a larger one is read from the files for each
-   query. Measured with the limits of DuckDB-WASM (3.1 GB, 1 thread): the table of DZE (3.9 million reports, the largest
-   product code) needs 990 MB, making it about 1.5 GB, and every panel query on it passes with a limit of 2 GB.
-   navigator.deviceMemory: GB of the device (Chrome, Edge; at most 8; Safari and Firefox do not give it). */
-const SEL_MAX = (navigator.deviceMemory || 4) >= 8 ? 4000000 : (navigator.deviceMemory || 4) >= 4 ? 1200000 : 600000;
+const SEL_MAX = selMax(navigator);
 const storage = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* no storage */ } } };
 
-let conn, M, products = [], q, tableSql = () => "", brandsReady = null;
+let conn, M, products = [], q, tableSql = () => "", fileSql = t => t, brandsReady = null;
 const tabParam = params.get("tab");
 const state = {
   pc: safePc((params.get("pc") || "").toUpperCase()),
@@ -2546,7 +2571,9 @@ async function openDatabase() {
     chain = run.catch(() => {});
     return run;
   };
-  tableSql = t => "read_parquet([" + M.tables[t].map(p => `'${new URL(p, BASE).href.replace(/'/g, "''")}'`).join(",") + "])";
+  const urlLit = p => `'${new URL(p, BASE).href.replace(/'/g, "''")}'`;
+  tableSql = t => "read_parquet([" + M.tables[t].map(urlLit).join(",") + "])";
+  fileSql = (t, idx) => "read_parquet([" + idx.map(i => urlLit(M.tables[t][i])).join(",") + "])";  // some files of t
 }
 /* DB END */
 
@@ -2573,6 +2600,10 @@ async function start() {
     if (M.tables.reports) await q(`CREATE VIEW reports AS SELECT * FROM ${tableSql("reports")}`);
     if (M.tables.text_pc) await q(`CREATE VIEW text_pc AS SELECT * FROM ${tableSql("text_pc")}`);
     if (M.tables.timely) for (const t of ["timely", "tl_mfr", "tl_dev"]) await q(`CREATE VIEW ${t} AS SELECT * FROM ${tableSql(t)}`);
+    for (const t of ["reports", "text_pc"]) {  // version 0.6.1 data: the product code range of each file (tableFor)
+      const r = M.file_ranges?.[t];
+      if (M.tables[t] && Array.isArray(r) && r.length === M.tables[t].length) FILE_RANGES[t] = { ranges: r, sql: idx => fileSql(t, idx) };
+    }
     if (M.tables.classification) await q(`CREATE TABLE cls AS SELECT * FROM ${tableSql("classification")}`);
     else await q(`CREATE TABLE cls (product_code VARCHAR, device_name VARCHAR, device_class VARCHAR, implant VARCHAR,
                   life_sustaining VARCHAR, specialty_code VARCHAR, specialty VARCHAR)`);
