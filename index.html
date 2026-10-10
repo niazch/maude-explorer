@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MAUDE Signal Explorer</title>
-<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.6/">
+<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.6.2/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231D5FA8'/><path d='M6 22h6l3-12 4 16 3-8h4' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -794,12 +794,12 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
 </main>
 <footer class="foot">
   <div>
-    <p><strong>MAUDE Signal Explorer</strong>, version 0.6.1, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
+    <p><strong>MAUDE Signal Explorer</strong>, version 0.6.2, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
     <p>Department of Physiology and Pharmacology, Schulich School of Medicine &amp; Dentistry, Western University, London, Ontario, Canada.</p>
   </div>
   <div>
     <p>Data: U.S. Food and Drug Administration, MAUDE download files (public data). This tool is not affiliated with or endorsed by the FDA. A report in MAUDE does not prove that a device caused an event.</p>
-    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.6.1) [software]. Muanda Lab, Western University; 2026.</p>
+    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.6.2) [software]. Muanda Lab, Western University; 2026.</p>
   </div>
 </footer>
 <p id="status" role="status" aria-live="polite" hidden><span id="stMsg"></span><span id="stTime" aria-hidden="true"></span></p>
@@ -1262,7 +1262,11 @@ const isoDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || "") ? s : null;
    whose range has a selected code. Each file costs about 3 HTTP requests before its data (size, end of the file,
    footer), and every query opens its files again: for 23 files, about 70 requests for each query instead of 3 to 6.
    FILE_RANGES[t] = { ranges: [[lo, hi], ...] in the order of the files, sql: indexes of the files -> FROM text }.
-   Without ranges (data of version 0.6), the view t with all files. */
+   Without ranges (data of version 0.6), the view t with all files. The ranges must follow each other (a range touches
+   the next one at most at one code): the data of version 0.6.1 had overlapping ranges (a parallel COPY of the pipeline
+   lost the sort order), and a code then was in many files and row groups. The pipeline of version 0.6.2 checks the order
+   of every table, and deploy.py does not publish overlapping ranges; with overlapping ranges this function still gives
+   correct results (it opens more files). */
 const FILE_RANGES = {};
 function tableFor(t, pcs) {
   const r = FILE_RANGES[t];
@@ -1745,7 +1749,7 @@ function toCsv(rows, cols) {
   return [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(c.get(r))).join(","))].join("\n");
 }
 /* ================================================================== version 0.6: page analyses, charts and exports */
-const APP_VERSION = "0.6.1";
+const APP_VERSION = "0.6.2";
 const NF = new Intl.NumberFormat("en-US");
 const fmt = (v, d = 2) => !Number.isFinite(v) ? "–" : (Math.abs(v) >= 1000 ? NF.format(Math.round(v)) : v.toFixed(d));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
