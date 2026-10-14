@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MAUDE Signal Explorer</title>
-<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.7/">
+<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.8/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231D5FA8'/><path d='M6 22h6l3-12 4 16 3-8h4' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -440,7 +440,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
   <div class="more" id="morePanel" hidden>
     <span class="ttl">More filters</span>
     <div class="chips" id="fSrc" role="group" aria-label="Report source"></div>
-    <label class="check"><input type="checkbox" id="fInitial"> Initial reports only</label>
+    <label class="check" title="Type of report includes I (initial). In the MAUDE files almost every report has I in its type of report (I, I,F, I,F,F and so on), so this filter leaves out very few reports. Reports with a follow-up (F) stay in."><input type="checkbox" id="fInitial"> Initial reports only</label>
     <label class="check"><input type="checkbox" id="fNoSummary"> Leave out summary reports</label>
     <span class="note" id="moreNote"></span>
   </div>
@@ -531,7 +531,10 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
       <p class="note">Reports: reports of this selection with the problem. Expected: the number if the problem were reported as often as for
         all other device types. ROR (reporting odds ratio): how many times as often the problem is reported (the bar shows its 95% CI; the
         dashed line is 1). PRR, χ² and IC025: the measures of the other signal rules. q: false discovery rate of the one-sided Fisher exact test
-        (Benjamini-Hochberg) over all problems in the table. Select a row or a point for the 2×2 table and the signal over time.</p>
+        (Benjamini-Hochberg) over all problems in the table. EBGM: empirical Bayes geometric mean (gamma-Poisson shrinker with two gamma components), the ratio of
+        observed to expected reports shrunk toward the prior, so that problems with few reports get smaller values; EB05: its lower 5% limit.
+        Select a row or a point for the 2×2 table and the signal over time.</p>
+      <p class="note res" id="ebgmNote" hidden></p>
     </section>
 
     <!-- Outcomes and patients -->
@@ -641,7 +644,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
           </div>
           <div class="row">
             <div class="f grow"><span class="flab">Report source</span><div class="chips" id="cSrc"></div></div>
-            <label class="check"><input type="checkbox" id="cInitial"> Initial reports only</label>
+            <label class="check" title="Type of report includes I (initial). In the MAUDE files almost every report has I in its type of report (I, I,F, I,F,F and so on), so this filter leaves out very few reports. Reports with a follow-up (F) stay in."><input type="checkbox" id="cInitial"> Initial reports only</label>
             <label class="check"><input type="checkbox" id="cNoSummary"> Leave out summary reports</label>
           </div>
         </fieldset>
@@ -753,7 +756,8 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
           <label class="check"><input type="checkbox" id="tNoOther" checked> Leave out event type Other or missing</label>
           <label class="check"><input type="checkbox" id="tNeedMfr" checked> Leave out reports without a manufacturer name</label>
           <label class="check"><input type="checkbox" id="tNeedClass" checked> Leave out reports without a device class</label>
-          <label class="check"><input type="checkbox" id="tInitial"> Only reports whose type of report includes "initial"</label>
+          <label class="check" title="Type of report includes I (initial). In the MAUDE files almost every report has I in its type of report (I, I,F, I,F,F and so on), so this filter leaves out very few reports. Reports with a follow-up (F) stay in."><input type="checkbox" id="tInitial"> Only reports whose type of report includes "initial"</label>
+          <label class="check" title="Type of report I without F: reports of events for which the manufacturer sent no follow-up report. Everhart et al. (BMJ 2025) used these reports as initial reports."><input type="checkbox" id="tNoFu" disabled> Only initial reports without a follow-up report (type of report I, not I,F)</label>
         </div>
       </fieldset>
       <fieldset class="group"><legend>Devices (optional)</legend>
@@ -787,6 +791,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
       <p class="note" id="tT2note"></p>
       <h3>Devices with the most late reports <button class="btn sm" type="button" data-csv="t3">CSV</button></h3>
       <div class="tablewrap"><table class="stat num" id="tT3"></table></div>
+      <p class="note" id="tT3note"></p>
       <p class="note">A device is a combination of brand name, generic name and manufacturer, as in Everhart et al.</p>
       <div class="dl"><span class="lbl">Download</span><button class="btn sm" type="button" id="tDef">Analysis definition (JSON)</button></div>
     </div>
@@ -823,11 +828,13 @@ const EVENT_IDS = EVENTS.map(e => e.id);
 const KIND = { dp: { type: "device", label: "Device problems" }, pp: { type: "patient", label: "Patient problems" } };
 
 const FDR_LEVEL = 0.05;
+const EBGM_LEVEL = 2;
 const CRITERIA = {
   ror: { label: "ROR lower 95% limit above 1, 3+ reports", test: r => r.a >= 3 && r.rorLo > 1 },
   prr: { label: "PRR 2+, χ² 4+, 3+ reports (Evans)", test: r => r.a >= 3 && r.prr >= 2 && r.chi2 >= 4 },
   ic: { label: "IC025 above 0", test: r => r.ic025 > 0 },
   fdr: { label: "FDR q below 0.05 (Fisher), 3+ reports", test: r => r.a >= 3 && r.lnQ < Math.log(FDR_LEVEL) },
+  ebgm: { label: "EB05 above 2 (EBGM, empirical Bayes)", test: r => r.eb05 > EBGM_LEVEL },  // only with a prior (version 0.8)
 };
 
 function safePc(pc) { return /^[A-Z0-9]{3}$/.test(pc || "") ? pc : null; }
@@ -1104,6 +1111,375 @@ function hhi(counts) {
   return N ? counts.reduce((a, c) => a + (100 * c / N) ** 2, 0) : NaN;
 }
 
+/* ---- EBGM (version 0.8): the Multi-item Gamma Poisson Shrinker of DuMouchel (1999). The one-component parts below are
+   a port of ebgm.js of the FAERS Pharmacovigilance Explorer (Muanda Lab; tested there against SciPy, its Python
+   original and openEBGM). Version 0.8 uses the TWO-component prior of DuMouchel (see ebgmFit2 below): on the real MAUDE
+   data the one-component prior has its maximum at alpha -> 0 (not identifiable; problem 79). The text below describes
+   the one-component functions, which stay as the reference fit and as a start of the two-component fit.
+   Model: a | lambda ~ Poisson(lambda E), E = nP nE / N (the expected count of the 2x2 table, as in disp);
+   lambda ~ Gamma(alpha, beta), shape alpha and RATE beta (prior mean alpha / beta). Posterior: Gamma(alpha + a, beta + E).
+   EBGM = exp(digamma(alpha + a) - ln(beta + E)), the geometric mean of the posterior; EB05 and EB95 are its 5% and
+   95% quantiles. Signal: EB05 above 2 (CRITERIA.ebgm).
+   Prior: maximum likelihood on all cells (product code x problem code) of a selection with a >= 1, CONDITIONED on
+   a >= 1 (a count table has no cells with 0 reports; without the condition, alpha is about 9 times too large on FAERS),
+   after data squashing: within each value of a, the cells are cut into 80 groups at the quantiles of E, and each group
+   gives its mean E with a weight (its number of cells). A fit that is not stable is not used: alpha or beta at the lower
+   limit (a prior near to an improper prior), or alpha at 1e6 or more (the cells show no variation beyond chance: the
+   prior is a point mass, every EBGM is about the prior mean, and lnGamma(alpha + a) - lnGamma(alpha) loses its precision). */
+// one name per line: the CORE loaders of precompute.mjs, validate.mjs and the tests export the first name of a line only
+const EBGM_BINS = 80;
+const EBGM_FLOOR = 1e-8;
+const EBGM_STABLE_MIN = 1e-7;
+const EBGM_SHAPE_MAX = 1e6;
+const EBGM_FORMAT = 2;
+const EBGM_LO = 1e-12;  // two-component fit: lower bound of shapes and rates (the shapes may go there: the boundary limit)
+const EBGM_HI = 1e6;  // two-component fit: upper bound of shapes and rates
+const EBGM_TIE = 0.05;  // two-component fit: runs within 0.05 log-likelihood units of the best are equally good
+const EBGM_AGREE = 0.1;  // ... and their EB05 must agree within 10% (of the larger of EB05 and 1), else the fit is not stable
+const EBGM_STARTS = [[0.2, 0.1, 2, 4, 1 / 3], [0.1, 0.1, 3, 3, 0.2], [0.5, 0.2, 2, 1, 0.15], [1, 0.5, 1.5, 0.7, 0.3], [0.3, 0.1, 4, 4, 0.1], [0.05, 0.05, 1, 0.1, 0.5], [1, 1, 100, 1000, 0.9], [1, 1, 1000, 1e5, 0.9]];
+const EBGM_MAX_GAP = 1;  // validate.mjs: a year without its own stable fit uses the fit of at most 1 year earlier (version 0.8, problem 77)
+
+function digamma(x) {  // psi(x), x > 0: the recurrence up to x >= 6, then the asymptotic series
+  let r = 0;
+  while (x < 6) { r -= 1 / x; x += 1; }
+  const f = 1 / (x * x);
+  return r + Math.log(x) - 0.5 / x - f * (1 / 12 - f * (1 / 120 - f * (1 / 252 - f * (1 / 240 - f * (1 / 132)))));
+}
+
+/* Regularized lower incomplete gamma P(s, x): series below s + 1, Lentz continued fraction above. Up to 1e6 terms (not
+   10,000 as gammaQ), so that the quantiles stay exact for a in the millions. */
+function gammaP(s, x) {
+  if (!(x > 0) || !(s > 0)) return 0;
+  const lead = -x + s * Math.log(x) - lnGamma(s);
+  if (x < s + 1) {
+    let ap = s, sum = 1 / s, del = 1 / s;
+    for (let n = 0; n < 1e6; n++) { ap += 1; del *= x / ap; sum += del; if (Math.abs(del) < Math.abs(sum) * 1e-15) break; }
+    return Math.min(1, sum * Math.exp(lead));
+  }
+  let b = x + 1 - s, c = 1e300, d = 1 / b, h = d;
+  for (let i = 1; i < 1e6; i++) {
+    const an = -i * (i - s);
+    b += 2;
+    d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300;
+    c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 1e-15) break;
+  }
+  return Math.max(0, 1 - Math.exp(lead) * h);
+}
+
+function normQuantile(p) {  // standard normal quantile (Acklam, about 1e-9 relative); only for start values
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.3577518672690, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  if (p < 0.02425) {
+    const t = Math.sqrt(-2 * Math.log(p));
+    return (((((c[0] * t + c[1]) * t + c[2]) * t + c[3]) * t + c[4]) * t + c[5]) / ((((d[0] * t + d[1]) * t + d[2]) * t + d[3]) * t + 1);
+  }
+  if (p > 1 - 0.02425) return -normQuantile(1 - p);
+  const t = p - 0.5, r = t * t;
+  return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * t / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+}
+
+/* p-quantile of Gamma(shape, rate): a bracket around a Wilson-Hilferty start, then Newton steps; a step out of the
+   bracket is replaced by a bisection on log x. It stops at 1e-12 relative. */
+function gammaQuantile(p, shape, rate) {
+  const cdf = x => x > 0 ? gammaP(shape, rate * x) : 0;
+  const pdf = x => Math.exp(shape * Math.log(rate) + (shape - 1) * Math.log(x) - rate * x - lnGamma(shape));
+  const k = 1 / (9 * shape), wh = shape * Math.pow(1 - k + normQuantile(p) * Math.sqrt(k), 3);
+  let x0 = wh > 0 ? wh / rate : Math.exp((Math.log(p) + lnGamma(shape + 1)) / shape) / rate;  // small shape: P(s, x) ~ x^s / Gamma(s + 1)
+  if (!(x0 > 0) || !Number.isFinite(x0)) x0 = shape / rate;
+  let lo = x0, hi = x0;
+  for (let i = 0; i < 2000 && cdf(lo) > p; i++) lo /= 2;
+  for (let i = 0; i < 2000 && cdf(hi) < p; i++) hi *= 2;
+  let x = (x0 > lo && x0 < hi) ? x0 : Math.sqrt(lo * hi);
+  for (let i = 0; i < 300; i++) {
+    const F = cdf(x);
+    if (F < p) lo = x; else hi = x;
+    const d = pdf(x);
+    let xn = (d > 0 && Number.isFinite(d)) ? x - (F - p) / d : NaN;
+    if (!(xn > lo && xn < hi)) xn = Math.sqrt(lo * hi);
+    if (Math.abs(xn - x) <= 1e-12 * x || hi / lo - 1 <= 1e-12) return xn;
+    x = xn;
+  }
+  return x;
+}
+
+/* EBGM, EB05 and EB95 of a cell with a reports and the expected count E, under the prior Gamma(alpha, beta). */
+function ebgmPost(a, E, alpha, beta) {
+  E = Math.max(E, 1e-12);
+  const s = alpha + a, r = beta + E;
+  return { ebgm: Math.exp(digamma(s) - Math.log(r)), eb05: gammaQuantile(0.05, s, r), eb95: gammaQuantile(0.95, s, r) };
+}
+
+/* Data squashing (as ebgm_core.squash of the Pharmacovigilance Explorer): within each value of n, if there are more
+   than `bins` cells, cut E at its quantiles (numpy.quantile, linear) into `bins` groups (numpy.digitize) and keep the
+   mean E of each group with the weight = its number of cells. Returns { n, e, w } (Float64Array). */
+function ebgmSquash(nArr, eArr, bins = EBGM_BINS) {
+  const byN = new Map();
+  for (let i = 0; i < nArr.length; i++) {
+    if (!byN.has(nArr[i])) byN.set(nArr[i], []);
+    byN.get(nArr[i]).push(eArr[i]);
+  }
+  const quant = (s, q) => { const pos = q * (s.length - 1), i = Math.floor(pos), f = pos - i; return i + 1 < s.length ? s[i] + f * (s[i + 1] - s[i]) : s[i]; };
+  const N = [], E = [], W = [];
+  for (const n of [...byN.keys()].sort((x, y) => x - y)) {
+    const e = byN.get(n);
+    if (e.length <= bins) { for (const v of e) { N.push(n); E.push(v); W.push(1); } continue; }
+    const sorted = Float64Array.from(e).sort(), edges = [];
+    for (let j = 1; j < bins; j++) edges.push(quant(sorted, j / bins));
+    const sum = new Float64Array(bins), cnt = new Float64Array(bins);
+    for (const v of e) {  // numpy.digitize(v, edges): the number of edges <= v
+      let lo = 0, hi = edges.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (edges[mid] <= v) lo = mid + 1; else hi = mid; }
+      sum[lo] += v; cnt[lo] += 1;
+    }
+    for (let k = 0; k < bins; k++) if (cnt[k] > 0) { N.push(n); E.push(sum[k] / cnt[k]); W.push(cnt[k]); }
+  }
+  return { n: Float64Array.from(N), e: Float64Array.from(E), w: Float64Array.from(W) };
+}
+
+/* Weighted negative log-likelihood of the one-component model (negative binomial marginal of a), conditioned on
+   a >= 1 if nStar = 1 (nStar = 0: not conditioned, only for the tests). The term ln(a!) is left out (it does not change
+   with alpha and beta), as in the Python original, so that the values can be compared. */
+function ebgmNegLL(alpha, beta, n, e, w, nStar = 1) {
+  if (!(alpha > 0) || !(beta > 0)) return 1e18;
+  const la = lnGamma(alpha), lb = Math.log(beta);
+  let tot = 0;
+  for (let i = 0; i < n.length; i++) {
+    const lbe = Math.log(beta + e[i]), lp0 = alpha * (lb - lbe);  // ln P(a = 0)
+    let ll = lnGamma(alpha + n[i]) - la + lp0 + n[i] * (Math.log(e[i]) - lbe);
+    if (nStar === 1) ll -= Math.log(Math.max(-Math.expm1(lp0), 1e-300));  // ln P(a >= 1)
+    tot += (w ? w[i] : 1) * ll;
+  }
+  return -tot;
+}
+
+function nelderMead(f, x0, { step = 0.5, maxIter = 4000, fTol = 1e-13, xTol = 1e-10 } = {}) {  // minimum of f (2-D use here)
+  const n = x0.length;
+  let simplex = [x0.slice()];
+  for (let i = 0; i < n; i++) { const x = x0.slice(); x[i] += step; simplex.push(x); }
+  let fv = simplex.map(f), iter = 0;
+  for (; iter < maxIter; iter++) {
+    const order = fv.map((v, i) => i).sort((i, j) => fv[i] - fv[j]);
+    simplex = order.map(i => simplex[i]); fv = order.map(i => fv[i]);
+    let spreadX = 0;
+    for (let i = 1; i <= n; i++) for (let j = 0; j < n; j++) spreadX = Math.max(spreadX, Math.abs(simplex[i][j] - simplex[0][j]));
+    if (Math.abs(fv[n] - fv[0]) <= fTol * (Math.abs(fv[0]) + 1) && spreadX <= xTol) break;
+    const cen = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) cen[j] += simplex[i][j] / n;
+    const pt = t => cen.map((c, j) => c + t * (simplex[n][j] - c));
+    const xr = pt(-1), fr = f(xr);
+    if (fr < fv[0]) {
+      const xe = pt(-2), fe = f(xe);
+      if (fe < fr) { simplex[n] = xe; fv[n] = fe; } else { simplex[n] = xr; fv[n] = fr; }
+    } else if (fr < fv[n - 1]) {
+      simplex[n] = xr; fv[n] = fr;
+    } else {
+      const xc = fr < fv[n] ? pt(-0.5) : pt(0.5), fc = f(xc);
+      if (fc < Math.min(fr, fv[n])) { simplex[n] = xc; fv[n] = fc; } else {
+        for (let i = 1; i <= n; i++) { simplex[i] = simplex[i].map((v, j) => simplex[0][j] + 0.5 * (v - simplex[0][j])); fv[i] = f(simplex[i]); }
+      }
+    }
+  }
+  let best = 0;
+  for (let i = 1; i <= n; i++) if (fv[i] < fv[best]) best = i;
+  return { x: simplex[best], fun: fv[best], iter, converged: iter < maxIter };
+}
+
+/* The prior: Nelder-Mead on (ln alpha, ln beta) from 6 fixed starts (those of the Python original), then one more run
+   from the best point (a restart against an early stop of Nelder-Mead). stable = false: alpha or beta at the lower
+   limit, or alpha at EBGM_SHAPE_MAX or more (the Python original tests only alpha at the lower limit). */
+function ebgmFit(n, e, w, nStar = 1) {
+  const obj = z => ebgmNegLL(Math.max(Math.exp(z[0]), EBGM_FLOOR), Math.max(Math.exp(z[1]), EBGM_FLOOR), n, e, w, nStar);
+  let best = null;
+  for (const [a, b] of [[1, 1], [0.5, 0.5], [2, 2], [1, 0.5], [0.3, 0.2], [1.5, 1]]) {
+    const r = nelderMead(obj, [Math.log(a), Math.log(b)]);
+    if (!best || r.fun < best.fun) best = r;
+  }
+  const again = nelderMead(obj, best.x, { step: 0.05 });
+  if (again.fun <= best.fun) best = { ...again, converged: again.converged && best.converged };
+  const alpha = Math.max(Math.exp(best.x[0]), EBGM_FLOOR), beta = Math.max(Math.exp(best.x[1]), EBGM_FLOOR);
+  return { alpha, beta, negLL: best.fun, stable: alpha > EBGM_STABLE_MIN && beta > EBGM_STABLE_MIN && alpha < EBGM_SHAPE_MAX, converged: best.converged };
+}
+
+/* ---- Two-component prior (version 0.8, 2026-10-13; problem 79). Prior of lambda: P Gamma(a1, b1) + (1 - P) Gamma(a2, b2)
+   (shapes a, RATES b). Marginal of a cell: f(n) = P NB(n; a1, b1/(b1 + E)) + (1 - P) NB(n; a2, b2/(b2 + E)). The
+   likelihood of the cells with n >= 1 conditions the MIXTURE: f(n) / (P S1 + (1 - P) S2), S = P(n >= 1) of a component
+   (the prior mixture holds for all cells, and only cells with n >= 1 are seen). openEBGM's negLLsquash conditions each
+   component separately (P f1/S1 + (1 - P) f2/S2): another model, measured in R (problem 78). The posterior is the one of
+   DuMouchel (1999) and openEBGM (Qn, ebgm, quantBisect): weight Q = P f1(n) / f(n) of Gamma(a1 + n, b1 + E), 1 - Q of
+   Gamma(a2 + n, b2 + E); EBGM = exp(Q (digamma(a1 + n) - ln(b1 + E)) + (1 - Q) (digamma(a2 + n) - ln(b2 + E))); EB05 and
+   EB95 are quantiles of the mixture. On MAUDE the maximum is at a1, a2 -> 0 (each component a logarithmic-series
+   distribution); then a1, a2 and P are not identifiable, but the likelihood and the posterior depend only on b1, b2 and
+   w = P a1 / (P a1 + (1 - P) a2), so EBGM and EB05 are (measured: SciPy, R, openEBGM's posterior functions). The fit:
+   Nelder-Mead on (ln a1, ln b1, ln a2, ln b2, logit P), bounds EBGM_LO to EBGM_HI and |logit P| <= 30, from the 6 starts
+   of openEBGM's examples, 2 starts with a point mass near 0 (means 0.1 and 0.01: on small data sets the maximum can be
+   there, measured on 83 synthetic cells) and one from the one-component fit, each run once more from its end (step 0.1). Stable: the best
+   run converged; the runs within EBGM_TIE of the best give the same EB05 within EBGM_AGREE on 60 squashed cells (this
+   finds a posterior that the data do not determine, as openEBGM's model on MAUDE: EB05 of one report from 0.42 to 19.5;
+   nearby optima of small data sets differ by a few percent, measured 2% and 6% on 2,000 synthetic cells); a component
+   with a posterior weight above 0.001 (mean over the cells) has a rate above EBGM_STABLE_MIN (a rate at the lower
+   limit: an improper component, no shrinkage). A component with a large shape and rate is a point mass; it is allowed
+   (measured: on FAERS-like cells a point mass near 0 takes 1% of the cells, and on cells with one rate the used
+   component is a point mass at that rate, EBGM about 1). The log-likelihood leaves out ln(n!), as ebgmNegLL. */
+function logAddExp(x, y) {  // ln(e^x + e^y) without overflow
+  if (x === -Infinity) return y;
+  if (y === -Infinity) return x;
+  return Math.max(x, y) + Math.log1p(Math.exp(-Math.abs(x - y)));
+}
+function ebgmData(n, e, w) {  // squashed cells with ln E and the distinct counts (lnGamma once per count and evaluation)
+  const keys = [...new Set(n)].sort((x, y) => x - y), idx = new Map(keys.map((k, i) => [k, i]));
+  return { n, e, w, le: Float64Array.from(e, v => Math.log(v)), un: Float64Array.from(keys), ui: Int32Array.from(n, v => idx.get(v)) };
+}
+function ebgmTheta(z) {  // the prior from the fit variables; lP and lQ are ln P and ln(1 - P), exact for any logit
+  const c = z.map((v, i) => i < 4 ? Math.min(Math.max(v, Math.log(EBGM_LO)), Math.log(EBGM_HI)) : Math.min(Math.max(v, -30), 30));
+  return { a1: Math.exp(c[0]), b1: Math.exp(c[1]), a2: Math.exp(c[2]), b2: Math.exp(c[3]), P: 1 / (1 + Math.exp(-c[4])),
+           lP: -Math.log1p(Math.exp(-c[4])), lQ: -Math.log1p(Math.exp(c[4])) };
+}
+function ebgmNegLL2(p, d) {  // weighted negative log-likelihood of the two-component model, conditioned on n >= 1 (no ln n!)
+  const { a1, b1, a2, b2 } = p, lP = p.lP ?? Math.log(p.P), lQ = p.lQ ?? Math.log1p(-p.P);
+  if (!(a1 > 0 && b1 > 0 && a2 > 0 && b2 > 0) || !(lP > -Infinity) || !(lQ > -Infinity)) return 1e18;
+  const K = d.un.length, g1 = new Float64Array(K), g2 = new Float64Array(K), la1 = lnGamma(a1), la2 = lnGamma(a2);
+  for (let k = 0; k < K; k++) { g1[k] = lnGamma(a1 + d.un[k]) - la1; g2[k] = lnGamma(a2 + d.un[k]) - la2; }
+  const lb1 = Math.log(b1), lb2 = Math.log(b2);
+  let tot = 0;
+  for (let i = 0; i < d.n.length; i++) {
+    const n = d.n[i], l1 = Math.log(b1 + d.e[i]), l2 = Math.log(b2 + d.e[i]), p1 = a1 * (lb1 - l1), p2 = a2 * (lb2 - l2);  // ln P(n = 0)
+    const f1 = g1[d.ui[i]] + p1 + n * (d.le[i] - l1), f2 = g2[d.ui[i]] + p2 + n * (d.le[i] - l2);
+    const s1 = Math.log(Math.max(-Math.expm1(p1), 1e-300)), s2 = Math.log(Math.max(-Math.expm1(p2), 1e-300));  // ln P(n >= 1)
+    tot += d.w[i] * (logAddExp(lP + f1, lQ + f2) - logAddExp(lP + s1, lQ + s2));
+  }
+  return -tot;
+}
+/* p-quantile of the mixture Q Gamma(s1, r1) + (1 - Q) Gamma(s2, r2): it lies between the quantiles of the components;
+   bisection on ln x to 1e-12 relative. */
+function mixGammaQuantile(p, Q, s1, r1, s2, r2) {
+  if (Q >= 1 - 1e-15) return gammaQuantile(p, s1, r1);
+  if (Q <= 1e-15) return gammaQuantile(p, s2, r2);
+  const q1 = gammaQuantile(p, s1, r1), q2 = gammaQuantile(p, s2, r2);
+  let lo = Math.min(q1, q2), hi = Math.max(q1, q2);
+  const F = x => Q * gammaP(s1, r1 * x) + (1 - Q) * gammaP(s2, r2 * x);
+  for (let i = 0; i < 200 && hi / lo - 1 > 1e-12; i++) { const x = Math.sqrt(lo * hi); if (F(x) < p) lo = x; else hi = x; }
+  return Math.sqrt(lo * hi);
+}
+/* EBGM, EB05, EB95 and the weight Q of component 1 of a cell with a reports and the expected count E (two components). */
+function ebgmPost2(a, E, p) {
+  E = Math.max(E, 1e-12);
+  const lP = p.lP ?? Math.log(p.P), lQ = p.lQ ?? Math.log1p(-p.P);
+  const lf = (al, be) => lnGamma(al + a) - lnGamma(al) + al * (Math.log(be) - Math.log(be + E)) + a * (Math.log(E) - Math.log(be + E));
+  const Q = 1 / (1 + Math.exp(lQ + lf(p.a2, p.b2) - lP - lf(p.a1, p.b1)));
+  const s1 = p.a1 + a, r1 = p.b1 + E, s2 = p.a2 + a, r2 = p.b2 + E;
+  return { ebgm: Math.exp(Q * (digamma(s1) - Math.log(r1)) + (1 - Q) * (digamma(s2) - Math.log(r2))),
+           eb05: mixGammaQuantile(0.05, Q, s1, r1, s2, r2), eb95: mixGammaQuantile(0.95, Q, s1, r1, s2, r2), q: Q };
+}
+/* The two-component fit of the squashed cells (see above). Component 1 is the one with the smaller rate. */
+function ebgmFit2(n, e, w) {
+  const d = ebgmData(n, e, w), one = ebgmFit(n, e, w, 1);
+  const obj = z => ebgmNegLL2(ebgmTheta(z), d);
+  const toZ = ([a1, b1, a2, b2, P]) => [Math.log(a1), Math.log(b1), Math.log(a2), Math.log(b2), Math.log(P / (1 - P))];
+  const starts = [...EBGM_STARTS, [Math.max(one.alpha, 1e-3), one.beta / 3, Math.max(one.alpha, 1e-3), one.beta * 3, 0.5]];
+  const runs = starts.map(s0 => {
+    const r1 = nelderMead(obj, toZ(s0), { step: 1, maxIter: 5000 }), r2 = nelderMead(obj, r1.x, { step: 0.1, maxIter: 5000 });
+    const r = r2.fun <= r1.fun ? r2 : r1, t = ebgmTheta(r.x);
+    const sw = t.b1 > t.b2;  // component 1 = the smaller rate
+    return { fun: r.fun, converged: r2.converged, p: sw ? { a1: t.a2, b1: t.b2, a2: t.a1, b2: t.b1, P: 1 - t.P, lP: t.lQ, lQ: t.lP } : t };
+  });
+  const best = runs.reduce((x, y) => (y.fun < x.fun ? y : x));
+  const ties = runs.filter(r => r.fun <= best.fun + EBGM_TIE);
+  const pick = Array.from({ length: Math.min(60, d.n.length) }, (_, j) => Math.floor(j * (d.n.length - 1) / Math.max(1, Math.min(60, d.n.length) - 1)));
+  const eb0 = pick.map(i => ebgmPost2(d.n[i], d.e[i], best.p).eb05);
+  let agree = 0;
+  for (const r of ties) if (r !== best) pick.forEach((i, j) => { agree = Math.max(agree, Math.abs(ebgmPost2(d.n[i], d.e[i], r.p).eb05 - eb0[j]) / Math.max(eb0[j], 1)); });
+  let u1 = 0, wt = 0;  // mean posterior weight of component 1 over the cells
+  for (let i = 0; i < d.n.length; i++) { u1 += d.w[i] * ebgmPost2Q(d.n[i], d.e[i], best.p); wt += d.w[i]; }
+  u1 /= wt;
+  const p = best.p, on = [u1 > 1e-3, 1 - u1 > 1e-3];  // components with a posterior weight above 0.001
+  const okComp = (be, on) => !on || be > EBGM_STABLE_MIN;
+  const lw = p.lP + Math.log(p.a1), lw2 = p.lQ + Math.log(p.a2);
+  return { a1: p.a1, b1: p.b1, a2: p.a2, b2: p.b2, P: p.P, w: 1 / (1 + Math.exp(lw2 - lw)), boundary: p.a1 <= 1e-6 && p.a2 <= 1e-6,
+           negLL: best.fun, stable: best.converged && agree <= EBGM_AGREE && okComp(p.b1, on[0]) && okComp(p.b2, on[1]),
+           converged: best.converged, agree, share1: u1, ties: ties.length, runs: runs.map(r => r.fun - best.fun),
+           one: { alpha: one.alpha, beta: one.beta, negLL: one.negLL, stable: one.stable } };
+}
+function ebgmPost2Q(a, E, p) {  // the posterior weight of component 1 only (no quantiles)
+  const lP = p.lP ?? Math.log(p.P), lQ = p.lQ ?? Math.log1p(-p.P);
+  const lf = (al, be) => lnGamma(al + a) - lnGamma(al) + al * (Math.log(be) - Math.log(be + E)) + a * (Math.log(E) - Math.log(be + E));
+  return 1 / (1 + Math.exp(lQ + lf(p.a2, p.b2) - lP - lf(p.a1, p.b1)));
+}
+/* The prior in words (Methods, notes, CSV): digits = significant digits (0: all). A shape at the lower limit (1e-6 or
+   less): P is then not identifiable (it goes to 0 or 1 with the shape), but w = P a1 / (P a1 + (1 - P) a2) is, so the
+   label gives w (problem 83: the real yearly priors showed "weight 1.000" when one shape was at the limit). */
+function ebgmPriorLabel(p, digits = 4) {
+  const f = v => digits ? Number(v).toPrecision(digits) : String(v);
+  if (p.boundary) return `two gamma components with shapes at the lower limit (alpha -> 0; logarithmic-series limit): rates ${f(p.b1)} and ${f(p.b2)}, effective weight ${f(p.w)} of the first`;
+  const lim = [p.a1 <= 1e-6, p.a2 <= 1e-6], comp = (a, b, l) => l ? `shape at the lower limit (alpha -> 0), rate ${f(b)}` : `shape ${f(a)}, rate ${f(b)}`;
+  if (lim[0] || lim[1]) return `two gamma components: ${comp(p.a1, p.b1, lim[0])}; ${comp(p.a2, p.b2, lim[1])}; effective weight ${f(p.w)} of the first`;
+  return `two gamma components: shape ${f(p.a1)}, rate ${f(p.b1)}, weight ${f(p.P)}; shape ${f(p.a2)}, rate ${f(p.b2)}`;
+}
+
+/* All cells (product code x problem code) with a >= 1 of the count tables with the filters f: a and nP nE (E = nP nE / N). */
+function ebgmCellsSql(f, kind) {
+  const F = filterSql(f);
+  return `WITH a AS (SELECT pc, c, sum(n)::DOUBLE AS a FROM pair_${kind} WHERE ${F} GROUP BY pc, c),
+     p AS (SELECT pc, sum(n)::DOUBLE AS np FROM pc_${kind} WHERE ${F} GROUP BY pc),
+     e AS (SELECT c, sum(n)::DOUBLE AS ne FROM code_${kind} WHERE ${F} GROUP BY c)
+SELECT a.a, p.np * e.ne AS pe FROM a JOIN p USING (pc) JOIN e USING (c) WHERE a.a > 0 ORDER BY a.a, pe`;
+}
+/* The prior of the selection f (all product codes): ebgmFit2 with cells, rows and N, or null.
+   It reads all cells of the count tables: precompute.mjs and validate.mjs use it; the page does not (too many data). */
+async function ebgmPrior(q, f, kind) {
+  const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM totals WHERE ${filterSql(f)}`);
+  const cells = await q(ebgmCellsSql(f, kind));
+  if (!cells.length || !(nn > 0)) return null;
+  const s = ebgmSquash(Float64Array.from(cells, r => r.a), Float64Array.from(cells, r => r.pe / nn), EBGM_BINS);
+  return { ...ebgmFit2(s.n, s.e, s.w), cells: cells.length, rows: s.n.length, N: nn };
+}
+/* The selection of the stored prior (precompute.mjs): all reports of the years y0 to y1, as the default selection. */
+function ebgmCohort(y0, y1) {
+  return { y0, y1, ev: [...EVENT_IDS], src: [...SOURCE_IDS], initial: false, noSummary: false };
+}
+function ebgmHash() {  // FNV-1a (32 bit) of the code that decides the stored prior; the page uses the prior only if equal
+  const src = [EBGM_FORMAT, EBGM_BINS, EBGM_FLOOR, EBGM_STABLE_MIN, EBGM_SHAPE_MAX, ebgmCohort, ebgmPrior, ebgmCellsSql, filterSql,
+    ebgmSquash, ebgmNegLL, ebgmFit, nelderMead, lnGamma, EVENT_IDS, SOURCE_IDS,
+    EBGM_LO, EBGM_HI, EBGM_TIE, EBGM_AGREE, EBGM_STARTS, logAddExp, ebgmData, ebgmTheta, ebgmNegLL2, ebgmFit2, ebgmPost2, ebgmPost2Q,
+    mixGammaQuantile, gammaQuantile, gammaP, digamma, normQuantile]
+    .map(x => typeof x === "object" ? JSON.stringify(x) : String(x)).join("\n");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < src.length; i++) { h ^= src.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
+}
+/* The stored prior (manifest.ebgm) for a selection: { a1, b1, a2, b2, P, w, boundary, exact } or null (no prior, another
+   code, not stable).
+   exact = true: the selection is the selection of the fit (the same count-table filters, no brand); else the prior is
+   an approximation. */
+function ebgmPriorUse(info, kind, f, sel = false) {
+  const p = info && info.format === EBGM_FORMAT && info.hash === ebgmHash() ? info[kind] : null;
+  if (!p || !p.stable || !p.converged || ![p.a1, p.b1, p.a2, p.b2].every(v => v > 0) || !(p.P > 0 && p.P < 1)) return null;
+  const g = { ...f, ev: EVENT_IDS.filter(e => f.ev.includes(e)), src: SOURCE_IDS.filter(x => (f.src || SOURCE_IDS).includes(x)) };
+  return { ...ebgmPick(p), exact: !sel && filterSql(g) === info.where };
+}
+/* The prior of each year of a time series (validate.mjs: the reports received up to the end of each year): the fit of
+   the year if it is stable and converged, else the prior of the nearest EARLIER year with such a fit (never a later
+   year: no knowledge of the future) if that year is at most maxGap years earlier, else null. Version 0.8, problem 77:
+   without the limit, the first real run used the prior of 1993 (605 cells) for every year to 2026. */
+function ebgmPick(p) {  // the numbers of a prior that the posterior and its label use
+  return { a1: p.a1, b1: p.b1, a2: p.a2, b2: p.b2, P: p.P, w: p.w, boundary: Boolean(p.boundary) };
+}
+function ebgmPriorSeries(fits, maxGap = EBGM_MAX_GAP) {
+  let last = null;
+  return fits.map(({ y, fit }) => {
+    if (fit && fit.stable && fit.converged) return (last = { ...ebgmPick(fit), exact: true, from: y });
+    return last && y - last.from <= maxGap ? { ...last, exact: false } : null;
+  });
+}
+function withEbgm(rows, prior) {
+  return prior ? rows.map(r => { const x = ebgmPost2(r.a, r.expected, prior); return { ...r, ebgm: x.ebgm, eb05: x.eb05, eb95: x.eb95 }; }) : rows;
+}
+
 /* The three queries of a signal table (shown on the Methods tab, so that a reader can run them again). */
 function signalSql(f, pc, kind) {
   const F = filterSql(f);
@@ -1117,19 +1493,19 @@ FROM a JOIN e USING (c) LEFT JOIN dict d ON d.CODE = a.c AND d.CODE_TYPE = '${KI
   };
 }
 
-async function signalTable(q, f, pc, kind) {
+async function signalTable(q, f, pc, kind, prior = null) {  // prior: of ebgmPriorUse (version 0.8), or null (no EBGM)
   const s = signalSql(f, pc, kind);
   const rows = await q(s.pairs);
   const [{ np }] = await q(s.nP);
   const [{ nn }] = await q(s.N);
-  const out = withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) })));
-  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out };
+  const out = withEbgm(withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) }))), prior);
+  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior };
 }
 
 /* Signal table of a selection of the report table (for example the reports of one brand): a and nP come from the
    selection (only reports that meet cond), nE and N from the count tables with the filters f. f and cond must describe
    the same reports as the selection; for a selection of one whole product code the result is that of signalTable. */
-async function signalTableSel(q, c, S, hasText, f, kind, cond = "true") {
+async function signalTableSel(q, c, S, hasText, f, kind, cond = "true", prior = null) {
   const col = kind === "pp" ? "patient_problem_codes" : "device_problem_codes", F = filterSql(f);
   const rows = await q(`WITH ${cohortCte(c, S, hasText, /\bdup_group\b/.test(cond))},
       u AS (SELECT unnest(${col}) AS c FROM y WHERE ${cond}),
@@ -1140,8 +1516,8 @@ async function signalTableSel(q, c, S, hasText, f, kind, cond = "true") {
   const [{ np }] = await q(`WITH ${cohortCte(c, S, hasText, /\bdup_group\b/.test(cond))}
     SELECT count(*) FILTER (WHERE (${cond}) AND len(coalesce(${col}, [])) > 0)::DOUBLE AS np FROM y`);
   const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM totals WHERE ${F}`);
-  const out = withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) })));
-  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out };
+  const out = withEbgm(withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) }))), prior);
+  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior };
 }
 
 /* Signals in the order of the evidence: smallest q first, then more reports, then the code. */
@@ -1742,6 +2118,9 @@ const TL_EXCL = [
   { id: "needMfr", label: "No manufacturer name", sql: "t.mfr_id IS NOT NULL" },
   { id: "needClass", label: "No device class (1, 2 or 3)", sql: "c.device_class IN ('1', '2', '3')" },
   { id: "initial", label: "Type of report without \"initial\"", sql: "coalesce(t.initial, false)" },
+  // version 0.8 (2026-10-13, problem 84): type of report I without F (no follow-up report), the initial reports of
+  // Everhart et al.; only for data with the column timely.no_followup (pipeline 0.8: stage site or layout)
+  { id: "noFollowup", label: "Type of report with a follow-up", sql: "coalesce(t.no_followup, false)" },
 ];
 const TL_CATS = [
   { id: "ontime", label: "Within 30 days", color: "var(--data1)" },
@@ -1750,7 +2129,7 @@ const TL_CATS = [
   { id: "missing", label: "Missing or invalid date", color: "var(--unk)" },
 ];
 
-/* t = { m0: 201909, m1: 202212, src: ["M"], pcs: [], classes: ["1","2","3"], spec: "", noSummary, noOther, needMfr, needClass, initial } */
+/* t = { m0: 201909, m1: 202212, src: ["M"], pcs: [], classes: ["1","2","3"], spec: "", noSummary, noOther, needMfr, needClass, initial, noFollowup } */
 function tlWhere(t, withExcl = true) {
   const w = [`t.ym BETWEEN ${t.m0 | 0} AND ${t.m1 | 0}`];
   const src = t.src.filter(x => SOURCES.some(s => s.id === x));
@@ -1819,13 +2198,16 @@ async function tlTop(q, t, kind, byGroup, n = 10) {
   const rows = await q(`WITH ${tlCte(t)}, z AS (${z}), s AS (SELECT sum(late) AS all_late FROM z)
     SELECT z.*, late / nullif(valid, 0) AS late_share, late / nullif(s.all_late, 0) AS share_of_all_late
     FROM z, s ORDER BY late DESC, total DESC LIMIT ${n | 0}`);
-  let meanTop200 = null;
-  if (kind === "mfr") {
-    const [r] = await q(`WITH ${tlCte(t)}, z AS (${z})
-      SELECT avg(late / nullif(valid, 0)) AS m FROM (SELECT * FROM z ORDER BY total DESC LIMIT 200)`);
-    meanTop200 = r.m;
-  }
-  return { rows, meanTop200 };
+  /* The measures of Everhart et al. (version 0.8; the page of 0.7 compared the mean of the 200 largest with their 23.4%,
+     which is the mean over ALL manufacturers): late share = late reports / all reports of the manufacturer or device.
+     meanAll: the mean late share over all manufacturers (devices); under10Top200: the share of the 200 with the most
+     reports whose late share is below 10% (Everhart et al.: manufacturers 23.4% and 68.5%; devices 71.5%).
+     meanTop200 (late / valid times, the 200 largest) stays for older callers. */
+  const key = kind === "mfr" ? "manufacturer" : "brand, generic, manufacturer";
+  const [r] = await q(`WITH ${tlCte(t)}, z AS (${z}), o AS (SELECT *, row_number() OVER (ORDER BY total DESC, ${key}) AS rk FROM z)
+    SELECT avg(late / nullif(valid, 0)) FILTER (WHERE rk <= 200) AS m200, avg(late / total) AS mall,
+           avg(CASE WHEN late / total < 0.1 THEN 1.0 ELSE 0.0 END) FILTER (WHERE rk <= 200) AS u10, count(*)::DOUBLE AS n FROM o`);
+  return { rows, meanTop200: kind === "mfr" ? r.m200 : null, meanAll: r.mall, under10Top200: r.u10, n: r.n };
 }
 
 function gini(values) {
@@ -1858,7 +2240,7 @@ function toCsv(rows, cols) {
   return [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(c.get(r))).join(","))].join("\n");
 }
 /* ================================================================== version 0.6: page analyses, charts and exports */
-const APP_VERSION = "0.7";
+const APP_VERSION = "0.8";
 const NF = new Intl.NumberFormat("en-US");
 const fmt = (v, d = 2) => !Number.isFinite(v) ? "–" : (Math.abs(v) >= 1000 ? NF.format(Math.round(v)) : v.toFixed(d));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -1900,13 +2282,15 @@ function scenarioFilter(f, id) {
 /* Signals of the main analysis and of each scenario that the count tables can express. sel = true: signals of the
    selection (signalTableSel, for example one brand), else of the product code (signalTable). The top signal is the
    first signal of the main analysis in the order of the evidence (byEvidence). */
-async function sensitivitySignals(q, c, S, hasText, f, pc, kind, crit, sel) {
+async function sensitivitySignals(q, c, S, hasText, f, pc, kind, crit, sel, prior = null) {
   const cond = Object.fromEntries(SCENARIOS.map(([id, , s]) => [id, s]));
   const runs = [];
   for (const [id] of SCENARIOS) {
     const f2 = scenarioFilter(f, id);
     if (!f2) { runs.push({ id, available: false }); continue; }
-    const res = sel ? await signalTableSel(q, c, S, hasText, f2, kind, cond[id]) : await signalTable(q, f2, pc, kind);
+    // the scenarios use the prior of the main analysis (an approximation for each scenario)
+    const pr = prior && id !== "main" ? { ...prior, exact: false } : prior;
+    const res = sel ? await signalTableSel(q, c, S, hasText, f2, kind, cond[id], pr) : await signalTable(q, f2, pc, kind, pr);
     const ranked = rankedSignals(res.rows, crit);
     runs.push({ id, available: true, m: res.m, nSignals: ranked.length, top3: ranked.slice(0, 3).map(x => x.code), rows: res.rows });
   }
@@ -2410,7 +2794,7 @@ function methodsText(kind, s) {
         + `with the Yates chi-square, the information component (IC) with its lower credibility limit IC025, and the one-sided Fisher exact `
         + `test (more reports than expected). If a cell of the table was 0, the ROR and PRR used a continuity correction of 0.5 in each cell. `
         + `P-values were corrected for multiple testing with the Benjamini-Hochberg procedure over the ${NF.format(s.m)} ${s.kindType} problem codes `
-        + `with at least one report. A signal was defined as ${s.ruleText}.${scen} [Describe the case-by-case review of the narratives, if any.]`,
+        + `with at least one report.${s.ebgm ? " " + ebgmMethods(s) : ""} A signal was defined as ${s.ruleText}.${scen} [Describe the case-by-case review of the narratives, if any.]`,
       limits];
   }
   return [intro, sel,
@@ -2425,6 +2809,14 @@ function methodsText(kind, s) {
       + "Narrative words and phrases were counted in a reproducible random sample of the reports (one count per report).",
     limits];
 }
+function ebgmMethods(s) {  // the sentences on EBGM of the Methods text (version 0.8); s.ebgm: the prior (ebgmPick), exact, cells, y0, y1
+  const e = s.ebgm;
+  return `We also calculated the empirical Bayes geometric mean (EBGM) with its 90% credibility interval (EB05 to EB95) of the gamma-Poisson `
+    + `shrinker with two gamma components (DuMouchel 1999). Its prior was fitted by maximum likelihood on all `
+    + `${NF.format(e.cells)} product code by ${s.kindType} problem code combinations of all reports received from ${e.y0} to ${e.y1}, `
+    + `with the likelihood of the mixture conditioned on at least one report (${ebgmPriorLabel(e)})${e.exact ? "" : "; the analysis used this prior for its selection without a new fit"}.`
+    + (e.boundary ? " Both shapes of the fit were at the lower limit; the prior is then identified only through the two rates and the effective weight of the first component, which also determine the posterior." : "");
+}
 const READUS_PV = [
   ["Title", "you", "Name the design (disproportionality analysis), the data source (MAUDE) and the device."],
   ["Background", "you", "What is known about the device and the events."],
@@ -2434,7 +2826,7 @@ const READUS_PV = [
   ["Variable definitions", "tool", "Methods text; sheet Definitions of the Excel workbook."],
   ["Statistical methods", "tool", "Methods text, paragraph 3."],
   ["Participants (report counts and characteristics)", "tool", "Sheets Report flow and Characteristics of the Excel workbook."],
-  ["Disproportionality analysis (results with CIs)", "tool", "Sheet Signals: a, b, c, d, ROR with 95% CI, PRR, IC025, p and q."],
+  ["Disproportionality analysis (results with CIs)", "tool", "Sheet Signals: a, b, c, d, ROR with 95% CI, PRR, IC025, EBGM with EB05 and EB95, p and q."],
   ["Case-by-case analysis", "part", "The Reports tab gives samples with narratives; you describe the review."],
   ["Key results", "you", "Your summary of the main findings."],
   ["External validity", "you", "To which devices and settings the results apply."],
@@ -2772,6 +3164,7 @@ async function start() {
   if (state.y0 > state.y1) [state.y0, state.y1] = [state.y1, state.y0];
   if (!state.dims) { state.src = [...SOURCE_IDS]; state.initial = state.noSummary = false; }
   if (!state.v06) state.brand = "";
+  if (state.crit === "ebgm" && !ebgmAny()) state.crit = "ror";  // data without a stored EBGM prior (before version 0.8)
   $("dataInfo").innerHTML = `${NF.format(M.n_reports)} reports received up to ${esc(M.data_through)}<br>Data version ${esc(dataTag())} · explorer version ${APP_VERSION}`;
   const css = document.createElement("style");
   css.textContent = CHART_CSS;
@@ -2830,7 +3223,8 @@ function buildControls() {
       <input type="checkbox" value="${e.id}" ${state.ev.includes(e.id) ? "checked" : ""}><span class="dot"></span>${e.label}</label>`).join("");
   $("fSrc").innerHTML = SOURCES.map(x => `<label class="chip" style="--c:var(--accent)"><input type="checkbox" value="${x.id}" ${state.src.includes(x.id) ? "checked" : ""}><span class="dot"></span>${x.label}</label>`).join("");
   $("fInitial").checked = state.initial; $("fNoSummary").checked = state.noSummary;
-  $("crit").innerHTML = Object.entries(CRITERIA).map(([k, c]) => `<option value="${k}" ${k === state.crit ? "selected" : ""}>${esc(c.label)}</option>`).join("");
+  $("crit").innerHTML = Object.entries(CRITERIA).filter(([k]) => k !== "ebgm" || ebgmAny())
+    .map(([k, c]) => `<option value="${k}" ${k === state.crit ? "selected" : ""}>${esc(c.label)}</option>`).join("");
   if (!state.dims) {
     $("moreBtn").disabled = true;
     $("moreBtn").title = "These filters need the data tables of version 0.6. Run the pipeline stage site again.";
@@ -3031,9 +3425,13 @@ function renderTab(tab) {
 }
 
 /* ------------------------------------------------------------------ data of the selection (memoized) */
+/* Version 0.8: the stored EBGM prior (precompute.mjs) for the selection, or null. exact = false: the filters or a brand
+   make another selection than the selection of the fit (the prior is an approximation, and the page says so). */
+const ebgmNow = kind => ebgmPriorUse(M.ebgm, kind, filters(), Boolean(state.brand && state.v06));
+const ebgmAny = () => ["dp", "pp"].some(k => ebgmPriorUse(M.ebgm, k, filters()));
 const sigTable = kind => memo(`sig:${kind}`, async () => (state.brand && state.v06)
-  ? signalTableSel(q, await analysisCohort(), schema(), hasText(), filters(), kind)
-  : signalTable(q, filters(), state.pc, kind));
+  ? signalTableSel(q, await analysisCohort(), schema(), hasText(), filters(), kind, "true", ebgmNow(kind))
+  : signalTable(q, filters(), state.pc, kind, ebgmNow(kind)));
 async function selTrendRows(c) {
   return q(`WITH ${cohortCte(c, schema(), hasText(), false)} SELECT year::INTEGER AS y, event AS ev, count(*)::DOUBLE AS n FROM y
             WHERE year IS NOT NULL GROUP BY ALL ORDER BY y`);
@@ -3151,9 +3549,19 @@ const COLS = [
   { key: "prr", label: "PRR", num: true },
   { key: "chi2", label: "χ²", num: true },
   { key: "ic025", label: "IC025", num: true },
+  { key: "ebgm", label: "EBGM", num: true, ebgm: true, title: "Empirical Bayes geometric mean (gamma-Poisson shrinker): the ratio of observed to expected reports, shrunk toward the prior" },
+  { key: "eb05", label: "EB05", num: true, ebgm: true, title: "Lower 5% limit of the EBGM (EBGM rule: EB05 above 2)" },
   { key: "lnQ", label: "q (FDR)", num: true, asc: true, title: "Benjamini-Hochberg q-value of the one-sided Fisher exact test, over all problem codes in this table" },
   { key: "sig", label: "Signal" },
 ];
+const sigCols = () => COLS.filter(c => !c.ebgm || state.result?.prior);  // the EBGM columns only with a prior (version 0.8)
+function ebgmNoteText(res, kind) {  // which prior the EBGM values use
+  const e = M.ebgm, p = res && res.prior, k = e && e[kind];
+  if (!p) return e ? `No EBGM for ${KIND[kind].type} problems: ${e.format !== EBGM_FORMAT || e.hash !== ebgmHash() ? "the stored prior was made with other code of the page; run precompute.mjs again"
+    : !k ? "the data have no prior for them" : "the fit of the prior is not stable (equally good fits give another EB05, or a rate or a shape at a limit) or did not converge"}.` : "";
+  return `EBGM prior: ${ebgmPriorLabel(p)}, fitted on all ${NF.format(k.cells)} product code × ${KIND[kind].type} problem cells of all reports ${e.y0}–${e.y1}`
+    + (p.exact ? "." : ". Approximate prior: this selection has other filters" + (state.brand ? " or a brand" : "") + " than the fit.");
+}
 const FMIN = 0.1, FMAX = 100, FW = 150;
 const fx = v => { const l = Math.log10(Math.min(FMAX, Math.max(FMIN, v))); return 6 + (l + 1) / 3 * (FW - 12); };
 function forestHeader() {
@@ -3211,7 +3619,7 @@ function buildSignalControls() {
   $("fig-volcano").addEventListener("click", e => { const c = e.target.closest("[data-code]"); if (c) openPair(+c.dataset.code); });
   $("resHead").addEventListener("click", e => {
     const b = e.target.closest("button[data-key]"); if (!b) return;
-    const k = b.dataset.key, cols = COLS;
+    const k = b.dataset.key, cols = sigCols();
     state.sort = state.sort.key === k ? { key: k, dir: -state.sort.dir } : { key: k, dir: k === "term" || cols.find(c => c.key === k)?.asc ? 1 : -1 };
     renderTable();
   });
@@ -3243,7 +3651,7 @@ function drawVolcano() {
     label: `Volcano plot of ${res.rows.length} ${KIND[state.kind].type} problems: reporting odds ratio against minus log10 q` }));
 }
 function renderTable() {
-  const cols = COLS;
+  const cols = sigCols();
   $("resHead").innerHTML = cols.map(c => {
     const s = state.sort.key === c.key ? ` aria-sort="${state.sort.dir > 0 ? "ascending" : "descending"}"` : "";
     const arrow = state.sort.key === c.key ? (state.sort.dir > 0 ? " ▲" : " ▼") : "";
@@ -3251,6 +3659,7 @@ function renderTable() {
   }).join("");
   const rows = visibleRows(), res = state.result;
   if (!res) return;
+  $("ebgmNote").textContent = ebgmNoteText(res, state.kind); $("ebgmNote").hidden = !$("ebgmNote").textContent;
   const nSig = res.rows.filter(CRITERIA[state.crit].test).length;
   $("tblTitle").textContent = `${NF.format(res.rows.length)} ${KIND[state.kind].type} problems · ${NF.format(nSig)} signal${nSig === 1 ? "" : "s"}`;
   $("count").textContent = `${NF.format(rows.length)} of ${NF.format(res.rows.length)} problems shown, ${NF.format(rows.filter(r => r.sig).length)} signals`;
@@ -3263,16 +3672,17 @@ function renderTable() {
   $("resBody").innerHTML = rows.slice(0, 1500).map(r => `<tr data-code="${r.code}" class="${r.sig ? "sig" : ""} ${r.a < 3 ? "few" : ""} ${state.selected === r.code ? "sel" : ""}" tabindex="0">`
     + `<td>${codeLabel(r)}</td><td class="num">${NF.format(r.a)}</td><td class="num">${fmt(r.expected, 1)}</td>
     <td class="forest">${forestCell(r)}</td><td class="num">${fmt(r.ror)}</td><td class="num">${fmt(r.prr)}</td>
-    <td class="num">${fmt(r.chi2, 1)}</td><td class="num">${fmt(r.ic025)}</td><td class="num">${fmtLnP(r.lnQ)}</td>
+    <td class="num">${fmt(r.chi2, 1)}</td><td class="num">${fmt(r.ic025)}</td>${res.prior ? `<td class="num">${fmt(r.ebgm)}</td><td class="num">${fmt(r.eb05)}</td>` : ""}<td class="num">${fmtLnP(r.lnQ)}</td>
     <td>${r.sig ? '<span class="flag">Signal</span>' : ""}</td></tr>`).join("");
 }
 function signalSheet(rows, res, kind) {
   const head = ["product_code", "brand_contains", "problem_kind", "code", "term", "code_status", "a", "b", "c", "d", "expected", "ror", "ror_lo95", "ror_hi95",
-    "prr", "prr_lo95", "prr_hi95", "chi2_yates", "ic", "ic025", "fisher_p_one_sided", "q_bh", "fdr_m", "signal", "signal_rule"];
-  const test = CRITERIA[state.crit].test;
+    "prr", "prr_lo95", "prr_hi95", "chi2_yates", "ic", "ic025", "ebgm", "eb05", "eb95", "ebgm_prior", "fisher_p_one_sided", "q_bh", "fdr_m", "signal", "signal_rule"];
+  const test = CRITERIA[state.crit].test, pr = ebgmPriorText(res.prior);
   return [head, ...rows.map(r => [state.pc, state.brand, KIND[kind].type, r.code, r.term, r.status, r.a, r.b, r.c, r.d, r.expected, r.ror, r.rorLo, r.rorHi,
-    r.prr, r.prrLo, r.prrHi, r.chi2, r.ic, r.ic025, fmtLnP(r.lnP, 6), fmtLnP(r.lnQ, 6), res.m, test(r) ? 1 : 0, CRITERIA[state.crit].label])];
+    r.prr, r.prrLo, r.prrHi, r.chi2, r.ic, r.ic025, r.ebgm ?? null, r.eb05 ?? null, r.eb95 ?? null, pr, fmtLnP(r.lnP, 6), fmtLnP(r.lnQ, 6), res.m, test(r) ? 1 : 0, CRITERIA[state.crit].label])];
 }
+const ebgmPriorText = p => p ? `${ebgmPriorLabel(p, 0)}${p.exact ? "" : " (approximate)"}` : "";
 function exportCsv() {
   const rows = visibleRows(); if (!rows.length) return;
   const cols = [
@@ -3282,6 +3692,8 @@ function exportCsv() {
     { label: "expected", get: r => r.expected }, { label: "ror", get: r => r.ror }, { label: "ror_lo95", get: r => r.rorLo },
     { label: "ror_hi95", get: r => r.rorHi }, { label: "prr", get: r => r.prr }, { label: "chi2_yates", get: r => r.chi2 },
     { label: "ic", get: r => r.ic }, { label: "ic025", get: r => r.ic025 },
+    { label: "ebgm", get: r => r.ebgm ?? null }, { label: "eb05", get: r => r.eb05 ?? null }, { label: "eb95", get: r => r.eb95 ?? null },
+    { label: "ebgm_prior", get: () => ebgmPriorText(state.result.prior) },
     { label: "fisher_p_one_sided", get: r => fmtLnP(r.lnP, 6) }, { label: "q_bh", get: r => fmtLnP(r.lnQ, 6) },
     { label: "fdr_m", get: () => state.result.m }, { label: "signal", get: r => r.sig ? 1 : 0 },
     { label: "years", get: () => `${state.y0}-${state.y1}` }, { label: "event_types", get: () => state.ev.join(" ") },
@@ -3314,6 +3726,7 @@ async function openPair(code) {
       <li><span>PRR (95% CI)</span><span>${fmt(r.prr)} (${fmt(r.prrLo)}–${fmt(r.prrHi)})</span></li>
       <li><span>χ² (Yates)</span><span>${fmt(r.chi2, 1)}</span></li>
       <li><span>IC (IC025)</span><span>${fmt(r.ic)} (${fmt(r.ic025)})</span></li>
+      ${state.result.prior ? `<li><span>EBGM (EB05–EB95)${state.result.prior.exact ? "" : ", approximate prior"}</span><span>${fmt(r.ebgm)} (${fmt(r.eb05)}–${fmt(r.eb95)})</span></li>` : ""}
       <li><span>Fisher exact p (one-sided)</span><span>${fmtLnP(r.lnP)}</span></li>
       <li><span>q (FDR, ${NF.format(state.result.m)} codes)</span><span>${fmtLnP(r.lnQ)}</span></li>
       <li><span>Expected reports</span><span>${fmt(r.expected, 1)}</span></li>
@@ -3769,12 +4182,12 @@ RENDER.compare = async key => {
 const sensitivity = () => memo(`sens:${state.kind}:${state.crit}`, async () => {
   const c = await analysisCohort(), S = schema(), T = hasText();
   const desc = await sensitivityTable(q, c, S, T);
-  const sig = state.dims ? await sensitivitySignals(q, c, S, T, filters(), state.pc, state.kind, state.crit, Boolean(state.brand)) : null;
+  const sig = state.dims ? await sensitivitySignals(q, c, S, T, filters(), state.pc, state.kind, state.crit, Boolean(state.brand), ebgmNow(state.kind)) : null;
   const res = await sigTable(state.kind);
   return { desc, sig, kind: state.kind, crit: state.crit, terms: new Map(res.rows.map(r => [r.code, r.term])) };
 });
 function drawSensitivity(s) {
-  const rule = { ror: "ROR rule", prr: "Evans rule", ic: "IC025 rule", fdr: "FDR rule" }[s.crit];
+  const rule = { ror: "ROR rule", prr: "Evans rule", ic: "IC025 rule", fdr: "FDR rule", ebgm: "EBGM rule" }[s.crit];
   const top = s.sig && s.sig[0].topCode;
   $("sensTable").innerHTML = `<thead><tr><th scope="col">Scenario</th><th scope="col">Reports</th><th scope="col">Deaths, % of reports</th><th scope="col">Serious outcome, % of reports with a patient record</th>`
     + `<th scope="col">Top signal, ROR (95% CI)</th><th scope="col">Signals (${rule})</th><th scope="col">Same top 3 signals</th></tr></thead><tbody>`
@@ -3841,9 +4254,11 @@ function methodsSpec(res, n) {
     state.dims && state.initial ? "only initial reports" : "", state.dims && state.noSummary ? "without summary reports" : ""].filter(Boolean);
   const scen = state.dims ? ["with initial reports only", "without summary reports", "with manufacturer reports only", "with user facility, distributor and voluntary reports only", "with the reports received from 2010"] : [];
   const rule = { ror: "a lower 95% confidence limit of the ROR above 1 with at least 3 reports", prr: "a PRR of 2 or more with a chi-square of 4 or more and at least 3 reports (Evans criteria)",
-    ic: "an IC025 above 0", fdr: `a Benjamini-Hochberg q-value below ${FDR_LEVEL} with at least 3 reports` }[state.crit];
+    ic: "an IC025 above 0", fdr: `a Benjamini-Hochberg q-value below ${FDR_LEVEL} with at least 3 reports`, ebgm: `an EB05 above ${EBGM_LEVEL}` }[state.crit];
+  const ek = res.prior && M.ebgm && M.ebgm[state.kind];
+  const ebgm = ek ? { ...ebgmPick(res.prior), exact: res.prior.exact, cells: ek.cells, y0: M.ebgm.y0, y1: M.ebgm.y1 } : null;
   return { version: APP_VERSION, dataTag: dataTag(), dataThrough: M.data_through, built: M.created, pc: state.pc, name: productOf(state.pc)?.name || "no device name",
-    brand: state.brand, y0: f.y0, y1: f.y1, events, allEvents: state.ev.length === EVENT_IDS.length, filters: filt, n, kindType: KIND[state.kind].type, N: res.N, nP: res.nP, m: res.m, ruleText: rule, scenarios: scen,
+    brand: state.brand, y0: f.y0, y1: f.y1, events, allEvents: state.ev.length === EVENT_IDS.length, filters: filt, n, kindType: KIND[state.kind].type, N: res.N, nP: res.nP, m: res.m, ruleText: rule, scenarios: scen, ebgm,
     timelyText: tlLast ? timelyMethods() : "" };
 }
 function timelyMethods() {
@@ -3950,7 +4365,9 @@ function definitionsSheet() {
     ["Unit", "One report (MDR report key); counts are distinct reports."],
     ["2x2 table", "a: reports of the selection with the problem code; b: reports of the selection with another problem code of the same kind; c: other reports with the problem code; d: all other reports. Only reports with at least one problem code of the kind."],
     ["ROR", "Reporting odds ratio with 95% CI (log method); 0.5 in each cell if a cell is 0."], ["PRR", "Proportional reporting ratio with 95% CI and the Yates chi-square."],
-    ["IC025", "Lower limit of the information component (BCPNN, simplified formula)."], ["p and q", "One-sided Fisher exact test; Benjamini-Hochberg q over all problem codes of the table (text, because some values are below 1e-308)."],
+    ["IC025", "Lower limit of the information component (BCPNN, simplified formula)."],
+    ["EBGM, EB05, EB95", "Empirical Bayes geometric mean of the gamma-Poisson shrinker with two gamma components (DuMouchel 1999) and its 5% and 95% posterior limits; prior fitted on all product code x problem code cells of all reports, with the likelihood of the mixture conditioned on at least one report. EBGM rule: EB05 above 2."],
+    ["p and q", "One-sided Fisher exact test; Benjamini-Hochberg q over all problem codes of the table (text, because some values are below 1e-308)."],
     ["Patient measures", "Reports with a patient record; age and sex of the first patient; a report has an outcome if any of its patients has it."],
     ["Serious outcome", "Death, life-threatening, hospitalization, disability, congenital anomaly or required intervention."],
     ["Intervals", "95% Wilson score intervals; differences with the Newcombe hybrid score interval."],
@@ -4043,14 +4460,22 @@ function buildTimely() {
   if (!M.tables.classification) { $("tNeedClass").checked = false; $("tNeedClass").disabled = true; $("tNeedClass").closest("label").title = "Run the pipeline stage classify."; }
   const ym1 = +M.data_through.slice(0, 4) * 100 + +M.data_through.slice(5, 7);
   $("tM0").value = ymToMonth(Math.floor(ym1 / 100) * 100 - 400 + 1); $("tM1").value = ymToMonth(ym1);
+  // version 0.8 (problem 84): the filter "I without F" needs the column no_followup (data of pipeline 0.8)
+  const noFu = () => { $("tNoFu").closest("label").title = "This data release has no column no_followup in the timeliness table (the pipeline stage layout of version 0.8 adds it)."; };
+  q("DESCRIBE timely").then(rows => {
+    if (rows.some(r => r.column_name === "no_followup")) $("tNoFu").disabled = false; else noFu();
+  }).catch(noFu);
   $("tPreset").onclick = () => {
     $("tM0").value = "2019-09"; $("tM1").value = "2022-12";
     $("tSrc").querySelectorAll("input").forEach(i => { i.checked = i.value === "M"; });
     $("tCls").querySelectorAll("input").forEach(i => { i.checked = true; });
     ["tNoSummary", "tNoOther", "tNeedMfr"].forEach(id => { $(id).checked = true; });
     if (!$("tNeedClass").disabled) $("tNeedClass").checked = true;
-    $("tInitial").checked = false; $("tPcs").value = ""; $("tSpec").value = "";
-    $("tNote").textContent = "Setup of Everhart et al.: manufacturer reports received 1 September 2019 to 31 December 2022, without summary reports, event type Other, missing manufacturer names or missing device class. Each MAUDE report key is one initial report, so the type-of-report filter stays off.";
+    $("tInitial").checked = true; $("tPcs").value = ""; $("tSpec").value = "";
+    $("tNoFu").checked = !$("tNoFu").disabled;
+    $("tNote").textContent = $("tNoFu").checked
+      ? "Setup of Everhart et al.: initial manufacturer reports without a follow-up report (type of report I, not I,F) received 1 September 2019 to 31 December 2022, without summary reports, event type Other, missing manufacturer names or missing device class. Almost every report has I in its type of report (I, I,F, I,F,F and so on); the reports with I and no F give the sample of the paper (validation of the tool)."
+      : "Setup of Everhart et al.: manufacturer reports received 1 September 2019 to 31 December 2022 whose type of report includes \"initial\", without summary reports, event type Other, missing manufacturer names or missing device class. Difference: the sample of the paper matches the reports whose type of report is I without a follow-up (F). Almost every report has I in its type of report (I, I,F, I,F,F and so on), so the initial-report filter leaves out very few reports, and the sample here is larger than the paper's. The tables of this data release cannot select I without F; the validation report of the tool gives that replication.";
     runTimely();
   };
   $("tlForm").addEventListener("submit", e => { e.preventDefault(); $("tNote").textContent = ""; runTimely(); });
@@ -4067,6 +4492,7 @@ function readTimely() {
     pcs: pcList($("tPcs").value), spec: $("tSpec").value,
     noSummary: $("tNoSummary").checked, noOther: $("tNoOther").checked, needMfr: $("tNeedMfr").checked,
     needClass: $("tNeedClass").checked && !$("tNeedClass").disabled, initial: $("tInitial").checked,
+    noFollowup: $("tNoFu").checked && !$("tNoFu").disabled,
   };
 }
 
@@ -4083,6 +4509,7 @@ function tlDefinition() {
       characteristics: "FDA product classification file of the product code (device class, implant flag, life-sustaining or life-supporting flag, medical specialty).",
       ci: "Wilson score interval, 95%.",
       gini: "Gini coefficient of the monthly counts over all months in the period.",
+      initial: "initial: the type of report includes I (initial report). noFollowup: the type of report is I without F (no follow-up report; the initial reports of Everhart et al.).",
     },
     sql_where: tlWhere(t).join(" AND "),
   };
@@ -4112,8 +4539,11 @@ async function runTop() {
   $("tT2").innerHTML = head("<th>Manufacturer</th>") + `<tbody>${m.rows.map(r => row(r, esc(r.manufacturer))).join("")}</tbody>`;
   $("tT3").innerHTML = head("<th>Device (brand, generic name, manufacturer)</th>") +
     `<tbody>${d.rows.map(r => row(r, `<strong>${esc(r.brand || "No brand")}</strong><br><span class="note">${esc(r.generic || "")}${r.generic ? ", " : ""}${esc(r.manufacturer || "")}</span>`)).join("")}</tbody>`;
-  $("tT2note").textContent = m.meanTop200 === null ? "" :
-    `Mean late share at manufacturer level, among the 200 manufacturers with the most reports: ${pct(m.meanTop200)}% (Everhart et al. report 23.4%).`;
+  const evNote = (x, what, paper) => x.meanAll === null || x.meanAll === undefined ? "" :
+    `Late share = late reports / all reports of the ${what}. Mean late share over all ${NF.format(x.n)} ${what}s: ${pct(x.meanAll)}%${paper[0] ? ` (Everhart et al.: ${paper[0]})` : ""}. `
+    + `Among the 200 ${what}s with the most reports, ${pct(x.under10Top200)}% had a late share below 10% (Everhart et al.: ${paper[1]}).`;
+  $("tT2note").textContent = evNote(m, by ? "manufacturer group" : "manufacturer", by ? ["", "68.5% of manufacturers"] : ["23.4%", "68.5%"]);
+  $("tT3note").textContent = evNote(d, "device", ["", "71.5%"]);
 }
 
 function renderTimely() {
