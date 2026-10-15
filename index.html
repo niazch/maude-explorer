@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MAUDE Signal Explorer</title>
-<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.8/">
+<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.9/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231D5FA8'/><path d='M6 22h6l3-12 4 16 3-8h4' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -219,8 +219,9 @@ dl.dq dt { color: var(--ink); } dl.dq dd { margin: 0; text-align: right; font-va
 .tools { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: center; }
 .tools input[type=search], .tools input[type=number], .tools select { height: 2.4rem; padding: 0 .6rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .tools select { max-width: min(100%, 22rem); }
+.tools select#bg { max-width: min(100%, 26rem); }
 .tools input[type=number] { width: 4.5rem; }
-.tools label { font-size: .9rem; color: var(--muted); display: inline-flex; align-items: center; gap: .4rem; }
+.tools label { font-size: .9rem; color: var(--muted); display: inline-flex; align-items: center; gap: .4rem; max-width: 100%; flex-wrap: wrap; }
 .tools .count { margin-left: auto; color: var(--muted); font-size: .9rem; }
 .seg { display: inline-flex; gap: 2px; border: 1px solid var(--line-soft); border-radius: 10px; padding: 3px; background: var(--surface-2); }
 .seg button { border: 0; background: none; padding: .32rem .85rem; border-radius: 8px; cursor: pointer; font-weight: 600; color: var(--muted); font-size: .9rem; }
@@ -493,7 +494,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
       </div>
       <section class="card how mt" id="how"><h2>How to read these numbers</h2><ul>
         <li>MAUDE collects reports from manufacturers, hospitals, patients and others. Many events are never reported, and some are reported more than once.</li>
-        <li>“Reported more often than expected” compares this device type with all other device types. It is a reason to look more closely, not a proof of risk.</li>
+        <li>“Reported more often than expected” compares this device type with all other device types (or, if you choose it in the Signals tab, with the device types of the same medical specialty or device class). It is a reason to look more closely, not a proof of risk.</li>
         <li>Counts change with recalls, lawsuits, news and changes of the problem codes. Use the Trends tab before you compare years.</li>
         <li>A report can name more than one problem and more than one outcome, so the shares do not add up to 100%.</li>
       </ul></section>
@@ -507,6 +508,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
           <button type="button" role="tab" id="tab-pp" aria-selected="false" data-kind="pp">Patient problems</button>
         </div>
         <label>Signal rule <select id="crit"></select></label>
+        <label>Compared with <select id="bg" aria-describedby="sigNote"></select></label>
         <input type="search" id="filt" placeholder="Filter problems" aria-label="Filter problems">
         <label>Minimum reports <input type="number" id="minA" min="1" value="1"></label>
         <label><input type="checkbox" id="onlySig"> Signals only</label>
@@ -517,7 +519,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
       <div class="sigtop">
         <div class="card x"><div class="cardhead"><h2>Volcano plot: size of the difference and strength of the evidence</h2><div class="figtools" data-fig="volcano"></div></div>
           <div class="fig" id="fig-volcano"></div>
-          <p class="note">Each point is one problem code. Right of the dashed line: reported more often than for other device types. Above the orange line: q below 0.05. Point size: number of reports. Points at the top: q below 1e-50. Select a point to open the problem.</p></div>
+          <p class="note">Each point is one problem code. Right of the dashed line: reported more often than for <span class="bgw">other device types</span>. Above the orange line: q below 0.05. Point size: number of reports. Points at the top: q below 1e-50. Select a point to open the problem.</p></div>
         <aside class="card drawer" id="drawer" hidden aria-live="polite"></aside>
         <aside class="card pickhint" id="pickHint"><h2>Select a problem</h2>
           <p class="note">Select a point in the volcano plot or a row in the table. This panel then shows the 2×2 table, all measures,
@@ -529,7 +531,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
         <table id="res" aria-describedby="count"><thead><tr id="resHead"></tr></thead><tbody id="resBody" class="res"></tbody></table>
       </div>
       <p class="note">Reports: reports of this selection with the problem. Expected: the number if the problem were reported as often as for
-        all other device types. ROR (reporting odds ratio): how many times as often the problem is reported (the bar shows its 95% CI; the
+        <span class="bgw2">all other device types</span>. ROR (reporting odds ratio): how many times as often the problem is reported (the bar shows its 95% CI; the
         dashed line is 1). PRR, χ² and IC025: the measures of the other signal rules. q: false discovery rate of the one-sided Fisher exact test
         (Benjamini-Hochberg) over all problems in the table. EBGM: empirical Bayes geometric mean (gamma-Poisson shrinker with two gamma components), the ratio of
         observed to expected reports shrunk toward the prior, so that problems with few reports get smaller values; EB05: its lower 5% limit.
@@ -838,6 +840,42 @@ const CRITERIA = {
 };
 
 function safePc(pc) { return /^[A-Z0-9]{3}$/.test(pc || "") ? pc : null; }
+
+/* Version 0.9: the comparison background of the signal tables (the other reports of the 2x2 table).
+   all: all other reports (the count tables pc, code and totals; as before). spec, class: the reports of the product codes
+   of the same medical specialty or of the same device class (FDA product classification): the background tables of the
+   pipeline (bg_dp, bg_pp: distinct reports with a product code of the group and the problem code; bg_totals: distinct
+   reports of the group). The group of a product code comes from the table bg_pc of the pipeline (bgGroups), never from
+   the page. A group key g is 'spec:<specialty code>' or 'class:<device class>'. */
+const BACKGROUNDS = [
+  { id: "all", label: "All device types", opt: "All device types", short: "all other device types" },
+  { id: "spec", label: "Same medical specialty", opt: "Same specialty", short: "the same medical specialty" },
+  { id: "class", label: "Same device class", opt: "Same class", short: "the same device class" },
+];
+const bgSafe = g => /^(spec|class):[A-Za-z0-9]{1,8}$/.test(g || "") ? g : null;
+const bgCodeSql = (kind, g) => g ? `bg_${kind} WHERE g = '${g}' AND` : `code_${kind} WHERE`;  // nE: reports with the code
+const bgTotSql = g => g ? `bg_totals WHERE g = '${g}' AND` : "totals WHERE";  // N: reports with a code of the kind
+/* The groups of a product code: { spec: { g, label, n_codes }, class: {...} } (n_codes: product codes with reports in
+   the group); {} if the data have no background tables or the product code has no classification. */
+async function bgGroups(q, pc) {
+  const p = safePc(pc);
+  if (!p) return {};
+  const rows = await q(`SELECT bg, g, label, n_codes::INTEGER AS n_codes FROM bg_pc WHERE pc = '${p}'`);
+  return Object.fromEntries(rows.filter(r => bgSafe(r.g) && BACKGROUNDS.some(b => b.id === r.bg))
+    .map(r => [r.bg, { g: r.g, label: r.label || r.g, n_codes: Number(r.n_codes) }]));
+}
+/* The group key g of the choice bg for a product code with the groups of bgGroups, or null (all other reports). null
+   also when the product code has no such group or the group has no other product code (the 2x2 table would compare the
+   product code with itself). */
+function bgGroupOf(groups, bg) {
+  const x = bg && bg !== "all" && groups ? groups[bg] : null;
+  return x && x.n_codes >= 2 ? bgSafe(x.g) : null;
+}
+/* The background of a result in words: b = { id, label, n_codes } (the group of bgGroups with its choice id), or null. */
+function bgText(b) {
+  const x = b && BACKGROUNDS.find(y => y.id === b.id);
+  return x && b.id !== "all" ? `the other device types of ${x.short} (${b.label})` : "other device types";
+}
 
 /* Filters of the count tables. f = { y0, y1, ev, src, initial, noSummary }. src, initial and noSummary (version 0.6)
    need the count-table dimensions src, initial and summary; without them in f, the SQL is as in version 0.5. */
@@ -1422,18 +1460,20 @@ function ebgmPriorLabel(p, digits = 4) {
 }
 
 /* All cells (product code x problem code) with a >= 1 of the count tables with the filters f: a and nP nE (E = nP nE / N). */
-function ebgmCellsSql(f, kind) {
-  const F = filterSql(f);
-  return `WITH a AS (SELECT pc, c, sum(n)::DOUBLE AS a FROM pair_${kind} WHERE ${F} GROUP BY pc, c),
-     p AS (SELECT pc, sum(n)::DOUBLE AS np FROM pc_${kind} WHERE ${F} GROUP BY pc),
-     e AS (SELECT c, sum(n)::DOUBLE AS ne FROM code_${kind} WHERE ${F} GROUP BY c)
+function ebgmCellsSql(f, kind, g = null) {  // g (version 0.9): the cells of the product codes of a background group, E of that background
+  const F = filterSql(f), G = bgSafe(g), m = G ? ` AND pc IN (SELECT pc FROM bg_pc WHERE g = '${G}')` : "";
+  return `WITH a AS (SELECT pc, c, sum(n)::DOUBLE AS a FROM pair_${kind} WHERE ${F}${m} GROUP BY pc, c),
+     p AS (SELECT pc, sum(n)::DOUBLE AS np FROM pc_${kind} WHERE ${F}${m} GROUP BY pc),
+     e AS (SELECT c, sum(n)::DOUBLE AS ne FROM ${bgCodeSql(kind, G)} ${F} GROUP BY c)
 SELECT a.a, p.np * e.ne AS pe FROM a JOIN p USING (pc) JOIN e USING (c) WHERE a.a > 0 ORDER BY a.a, pe`;
 }
 /* The prior of the selection f (all product codes): ebgmFit2 with cells, rows and N, or null.
-   It reads all cells of the count tables: precompute.mjs and validate.mjs use it; the page does not (too many data). */
-async function ebgmPrior(q, f, kind) {
-  const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM totals WHERE ${filterSql(f)}`);
-  const cells = await q(ebgmCellsSql(f, kind));
+   It reads all cells of the count tables: precompute.mjs and validate.mjs use it; the page does not (too many data).
+   g (version 0.9): the prior of a background group (DuMouchel's method on the reports of the group: the cells of its
+   product codes, with E of that background). */
+async function ebgmPrior(q, f, kind, g = null) {
+  const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM ${bgTotSql(bgSafe(g))} ${filterSql(f)}`);
+  const cells = await q(ebgmCellsSql(f, kind, g));
   if (!cells.length || !(nn > 0)) return null;
   const s = ebgmSquash(Float64Array.from(cells, r => r.a), Float64Array.from(cells, r => r.pe / nn), EBGM_BINS);
   return { ...ebgmFit2(s.n, s.e, s.w), cells: cells.length, rows: s.n.length, N: nn };
@@ -1446,7 +1486,7 @@ function ebgmHash() {  // FNV-1a (32 bit) of the code that decides the stored pr
   const src = [EBGM_FORMAT, EBGM_BINS, EBGM_FLOOR, EBGM_STABLE_MIN, EBGM_SHAPE_MAX, ebgmCohort, ebgmPrior, ebgmCellsSql, filterSql,
     ebgmSquash, ebgmNegLL, ebgmFit, nelderMead, lnGamma, EVENT_IDS, SOURCE_IDS,
     EBGM_LO, EBGM_HI, EBGM_TIE, EBGM_AGREE, EBGM_STARTS, logAddExp, ebgmData, ebgmTheta, ebgmNegLL2, ebgmFit2, ebgmPost2, ebgmPost2Q,
-    mixGammaQuantile, gammaQuantile, gammaP, digamma, normQuantile]
+    mixGammaQuantile, gammaQuantile, gammaP, digamma, normQuantile, bgSafe, bgCodeSql, bgTotSql]
     .map(x => typeof x === "object" ? JSON.stringify(x) : String(x)).join("\n");
   let h = 0x811c9dc5;
   for (let i = 0; i < src.length; i++) { h ^= src.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
@@ -1455,12 +1495,13 @@ function ebgmHash() {  // FNV-1a (32 bit) of the code that decides the stored pr
 /* The stored prior (manifest.ebgm) for a selection: { a1, b1, a2, b2, P, w, boundary, exact } or null (no prior, another
    code, not stable).
    exact = true: the selection is the selection of the fit (the same count-table filters, no brand); else the prior is
-   an approximation. */
-function ebgmPriorUse(info, kind, f, sel = false) {
-  const p = info && info.format === EBGM_FORMAT && info.hash === ebgmHash() ? info[kind] : null;
+   an approximation. g (version 0.9): the prior of the background group g (manifest.ebgm.bg[g]). */
+function ebgmPriorUse(info, kind, f, sel = false, g = null) {
+  const G = bgSafe(g), ok = info && info.format === EBGM_FORMAT && info.hash === ebgmHash();
+  const p = ok ? (G ? info.bg && info.bg[G] && info.bg[G][kind] : info[kind]) : null;
   if (!p || !p.stable || !p.converged || ![p.a1, p.b1, p.a2, p.b2].every(v => v > 0) || !(p.P > 0 && p.P < 1)) return null;
-  const g = { ...f, ev: EVENT_IDS.filter(e => f.ev.includes(e)), src: SOURCE_IDS.filter(x => (f.src || SOURCE_IDS).includes(x)) };
-  return { ...ebgmPick(p), exact: !sel && filterSql(g) === info.where };
+  const h = { ...f, ev: EVENT_IDS.filter(e => f.ev.includes(e)), src: SOURCE_IDS.filter(x => (f.src || SOURCE_IDS).includes(x)) };
+  return { ...ebgmPick(p), exact: !sel && filterSql(h) === info.where, ...(G ? { g: G } : {}) };
 }
 /* The prior of each year of a time series (validate.mjs: the reports received up to the end of each year): the fit of
    the year if it is stable and converged, else the prior of the nearest EARLIER year with such a fit (never a later
@@ -1481,43 +1522,43 @@ function withEbgm(rows, prior) {
 }
 
 /* The three queries of a signal table (shown on the Methods tab, so that a reader can run them again). */
-function signalSql(f, pc, kind) {
-  const F = filterSql(f);
+function signalSql(f, pc, kind, g = null) {  // g: the background group (version 0.9), or null: all other reports
+  const F = filterSql(f), G = bgSafe(g);
   return {
     pairs: `WITH a AS (SELECT c, sum(n)::DOUBLE AS a FROM pair_${kind} WHERE pc = '${pc}' AND ${F} GROUP BY c),
-     e AS (SELECT c, sum(n)::DOUBLE AS ne FROM code_${kind} WHERE c IN (SELECT c FROM a) AND ${F} GROUP BY c)
+     e AS (SELECT c, sum(n)::DOUBLE AS ne FROM ${bgCodeSql(kind, G)} c IN (SELECT c FROM a) AND ${F} GROUP BY c)
 SELECT a.c::INTEGER AS code, a.a, e.ne, d.TERM AS term, d.STATUS AS status
 FROM a JOIN e USING (c) LEFT JOIN dict d ON d.CODE = a.c AND d.CODE_TYPE = '${KIND[kind].type}'`,
     nP: `SELECT coalesce(sum(n), 0)::DOUBLE AS np FROM pc_${kind} WHERE pc = '${pc}' AND ${F}`,
-    N: `SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM totals WHERE ${F}`,
+    N: `SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM ${bgTotSql(G)} ${F}`,
   };
 }
 
-async function signalTable(q, f, pc, kind, prior = null) {  // prior: of ebgmPriorUse (version 0.8), or null (no EBGM)
-  const s = signalSql(f, pc, kind);
+async function signalTable(q, f, pc, kind, prior = null, g = null) {  // prior: of ebgmPriorUse (version 0.8), or null (no EBGM)
+  const s = signalSql(f, pc, kind, g);  // g: the background group (version 0.9), or null: all other reports
   const rows = await q(s.pairs);
   const [{ np }] = await q(s.nP);
   const [{ nn }] = await q(s.N);
   const out = withEbgm(withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) }))), prior);
-  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior };
+  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior, g: bgSafe(g) };
 }
 
 /* Signal table of a selection of the report table (for example the reports of one brand): a and nP come from the
    selection (only reports that meet cond), nE and N from the count tables with the filters f. f and cond must describe
    the same reports as the selection; for a selection of one whole product code the result is that of signalTable. */
-async function signalTableSel(q, c, S, hasText, f, kind, cond = "true", prior = null) {
-  const col = kind === "pp" ? "patient_problem_codes" : "device_problem_codes", F = filterSql(f);
+async function signalTableSel(q, c, S, hasText, f, kind, cond = "true", prior = null, g = null) {
+  const col = kind === "pp" ? "patient_problem_codes" : "device_problem_codes", F = filterSql(f), G = bgSafe(g);
   const rows = await q(`WITH ${cohortCte(c, S, hasText, /\bdup_group\b/.test(cond))},
       u AS (SELECT unnest(${col}) AS c FROM y WHERE ${cond}),
       a AS (SELECT c, count(*)::DOUBLE AS a FROM u GROUP BY c),
-      e AS (SELECT c, sum(n)::DOUBLE AS ne FROM code_${kind} WHERE c IN (SELECT c FROM a) AND ${F} GROUP BY c)
+      e AS (SELECT c, sum(n)::DOUBLE AS ne FROM ${bgCodeSql(kind, G)} c IN (SELECT c FROM a) AND ${F} GROUP BY c)
     SELECT a.c::INTEGER AS code, a.a, e.ne, d.TERM AS term, d.STATUS AS status
     FROM a JOIN e USING (c) LEFT JOIN dict d ON d.CODE = a.c AND d.CODE_TYPE = '${KIND[kind].type}'`);
   const [{ np }] = await q(`WITH ${cohortCte(c, S, hasText, /\bdup_group\b/.test(cond))}
     SELECT count(*) FILTER (WHERE (${cond}) AND len(coalesce(${col}, [])) > 0)::DOUBLE AS np FROM y`);
-  const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM totals WHERE ${F}`);
+  const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM ${bgTotSql(G)} ${F}`);
   const out = withEbgm(withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) }))), prior);
-  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior };
+  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior, g: G };
 }
 
 /* Signals in the order of the evidence: smallest q first, then more reports, then the code. */
@@ -1527,13 +1568,13 @@ const rankedSignals = (rows, crit) => rows.filter(CRITERIA[crit].test).sort(byEv
 /* Signal over time of one pair: the 2x2 table of all reports received up to the end of each year (cumulative), with
    the filters f, and its ROR with the 95% CI. firstYear: the first year in which the ROR rule holds
    (lower 95% limit above 1, 3 or more reports). */
-async function cumulativeRor(q, f, pc, kind, code) {
-  const F = filterSql(f), k = code | 0;
+async function cumulativeRor(q, f, pc, kind, code, g = null) {  // g: the background group (version 0.9)
+  const F = filterSql(f), k = code | 0, G = bgSafe(g);
   const by = rows => new Map(rows.map(r => [r.y, r.n]));
   const A = by(await q(`SELECT y::INTEGER AS y, sum(n)::DOUBLE AS n FROM pair_${kind} WHERE pc = '${pc}' AND c = ${k} AND ${F} GROUP BY 1`));
   const P = by(await q(`SELECT y::INTEGER AS y, sum(n)::DOUBLE AS n FROM pc_${kind} WHERE pc = '${pc}' AND ${F} GROUP BY 1`));
-  const E = by(await q(`SELECT y::INTEGER AS y, sum(n)::DOUBLE AS n FROM code_${kind} WHERE c = ${k} AND ${F} GROUP BY 1`));
-  const T = by(await q(`SELECT y::INTEGER AS y, sum(n_${kind})::DOUBLE AS n FROM totals WHERE ${F} GROUP BY 1`));
+  const E = by(await q(`SELECT y::INTEGER AS y, sum(n)::DOUBLE AS n FROM ${bgCodeSql(kind, G)} c = ${k} AND ${F} GROUP BY 1`));
+  const T = by(await q(`SELECT y::INTEGER AS y, sum(n_${kind})::DOUBLE AS n FROM ${bgTotSql(G)} ${F} GROUP BY 1`));
   const points = [];
   let a = 0, nP = 0, nE = 0, N = 0;
   for (let y = f.y0; y <= f.y1; y++) {
@@ -1671,7 +1712,7 @@ function tableFor(t, pcs) {
 const FILE_PREFIX = "maude/";
 const FILE_REFRESH = 0.75, FILE_DEFAULT_MS = 10 * 60e3, FILE_MIN_MS = 60e3, FILE_RETRY_MS = 5 * 60e3;
 const VIEW_TABLES = ["pair_dp", "pair_pp", "pc_dp", "pc_pp", "code_dp", "code_pp", "idx_dp", "idx_pp", "pc_all", "master", "device",
-  "reports", "text_pc", "timely", "tl_mfr", "tl_dev"];
+  "reports", "text_pc", "timely", "tl_mfr", "tl_dev", "bg_pc", "bg_totals", "bg_dp", "bg_pp"];
 const START_TABLES = ["totals", "dictionary", "classification", "products"];  // read completely by start()
 function urlExpiry(u) {  // when a signed address expires (ms since 1970), or null
   let sp;
@@ -2240,7 +2281,7 @@ function toCsv(rows, cols) {
   return [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(c.get(r))).join(","))].join("\n");
 }
 /* ================================================================== version 0.6: page analyses, charts and exports */
-const APP_VERSION = "0.8";
+const APP_VERSION = "0.9";
 const NF = new Intl.NumberFormat("en-US");
 const fmt = (v, d = 2) => !Number.isFinite(v) ? "–" : (Math.abs(v) >= 1000 ? NF.format(Math.round(v)) : v.toFixed(d));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -2282,7 +2323,7 @@ function scenarioFilter(f, id) {
 /* Signals of the main analysis and of each scenario that the count tables can express. sel = true: signals of the
    selection (signalTableSel, for example one brand), else of the product code (signalTable). The top signal is the
    first signal of the main analysis in the order of the evidence (byEvidence). */
-async function sensitivitySignals(q, c, S, hasText, f, pc, kind, crit, sel, prior = null) {
+async function sensitivitySignals(q, c, S, hasText, f, pc, kind, crit, sel, prior = null, g = null) {
   const cond = Object.fromEntries(SCENARIOS.map(([id, , s]) => [id, s]));
   const runs = [];
   for (const [id] of SCENARIOS) {
@@ -2290,7 +2331,7 @@ async function sensitivitySignals(q, c, S, hasText, f, pc, kind, crit, sel, prio
     if (!f2) { runs.push({ id, available: false }); continue; }
     // the scenarios use the prior of the main analysis (an approximation for each scenario)
     const pr = prior && id !== "main" ? { ...prior, exact: false } : prior;
-    const res = sel ? await signalTableSel(q, c, S, hasText, f2, kind, cond[id], pr) : await signalTable(q, f2, pc, kind, pr);
+    const res = sel ? await signalTableSel(q, c, S, hasText, f2, kind, cond[id], pr, g) : await signalTable(q, f2, pc, kind, pr, g);
     const ranked = rankedSignals(res.rows, crit);
     runs.push({ id, available: true, m: res.m, nSignals: ranked.length, top3: ranked.slice(0, 3).map(x => x.code), rows: res.rows });
   }
@@ -2783,13 +2824,16 @@ function methodsText(kind, s) {
   if (kind === "timely") {
     return [s.timelyText || "[Run the reporting timeliness analysis first.]", limits];
   }
+  const bg = s.bg && BACKGROUNDS.find(x => x.id === s.bg.id && x.id !== "all");  // version 0.9: the comparison background
   const sel = `We selected the reports received from ${s.y0} to ${s.y1} for product code ${s.pc} (${s.name})${s.brand ? ` whose brand name contains "${s.brand}"` : ""}, `
     + `${s.allEvents ? "of all event types" : `with the event types ${listText(s.events)}`}${s.filters.length ? `; ${listText(s.filters)}` : ""} (${NF.format(s.n)} reports). The unit of analysis was the report.`;
   if (kind === "signals") {
     const scen = s.scenarios.length ? ` Sensitivity analyses repeated the analysis ${listText(s.scenarios)}.` : "";
     return [intro,
-      `${sel} For each ${s.kindType} problem code, a 2×2 table compared ${s.brand ? "these reports" : `product code ${s.pc}`} with all other product codes, `
-        + `among the ${NF.format(s.N)} reports with at least one ${s.kindType} problem code (${NF.format(s.nP)} of them in the selection).`,
+      `${sel} For each ${s.kindType} problem code, a 2×2 table compared ${s.brand ? "these reports" : `product code ${s.pc}`} with `
+        + (bg ? `the other product codes of ${bg.short} in the FDA product classification (${s.bg.label}; ${NF.format(s.bg.n_codes)} product codes with reports), `
+              + `among the ${NF.format(s.N)} reports of these product codes with at least one ${s.kindType} problem code (${NF.format(s.nP)} of them in the selection).`
+            : `all other product codes, among the ${NF.format(s.N)} reports with at least one ${s.kindType} problem code (${NF.format(s.nP)} of them in the selection).`),
       `We calculated the reporting odds ratio (ROR) with its 95% confidence interval (log method), the proportional reporting ratio (PRR) `
         + `with the Yates chi-square, the information component (IC) with its lower credibility limit IC025, and the one-sided Fisher exact `
         + `test (more reports than expected). If a cell of the table was 0, the ROR and PRR used a continuity correction of 0.5 in each cell. `
@@ -2813,7 +2857,7 @@ function ebgmMethods(s) {  // the sentences on EBGM of the Methods text (version
   const e = s.ebgm;
   return `We also calculated the empirical Bayes geometric mean (EBGM) with its 90% credibility interval (EB05 to EB95) of the gamma-Poisson `
     + `shrinker with two gamma components (DuMouchel 1999). Its prior was fitted by maximum likelihood on all `
-    + `${NF.format(e.cells)} product code by ${s.kindType} problem code combinations of all reports received from ${e.y0} to ${e.y1}, `
+    + `${NF.format(e.cells)} product code by ${s.kindType} problem code combinations of ${e.bg ? "the product codes of this comparison group (with the expected counts of the group), with the" : "all"} reports received from ${e.y0} to ${e.y1}, `
     + `with the likelihood of the mixture conditioned on at least one report (${ebgmPriorLabel(e)})${e.exact ? "" : "; the analysis used this prior for its selection without a new fit"}.`
     + (e.boundary ? " Both shapes of the fit were at the lower limit; the prior is then identified only through the two rates and the effective weight of the first component, which also determine the posterior." : "");
 }
@@ -2840,8 +2884,8 @@ function inShortHtml(s) {
   const p = [`From ${s.y0} to ${s.y1}, <strong>${NF.format(s.n)} reports</strong> named ${s.brand ? `the brand “${esc(s.brand)}” (product code ${esc(s.pc)})` : "this device type"}.`
     + ` <strong>${NF.format(s.deaths)}</strong> report a death${s.hasV06 ? `, and <strong>${NF.format(s.serious)}</strong> report a serious patient outcome (death, life-threatening event, hospitalization, disability, congenital anomaly or required intervention)` : ""}.`];
   p.push(s.nSignals
-    ? `<strong>${NF.format(s.nSignals)} ${s.kindType} problem${s.nSignals === 1 ? " is" : "s are"}</strong> reported more often than for other device types (${esc(s.ruleText)})${s.signals.length ? `: ${esc(listText(s.signals.map(t => t.toLowerCase())))}` : ""}${s.nSignals > s.signals.length ? ", and others" : ""}.`
-    : `No ${s.kindType} problem is reported more often than for other device types by the selected rule (${esc(s.ruleText)}).`);
+    ? `<strong>${NF.format(s.nSignals)} ${s.kindType} problem${s.nSignals === 1 ? " is" : "s are"}</strong> reported more often than for ${esc(bgText(s.bg))} (${esc(s.ruleText)})${s.signals.length ? `: ${esc(listText(s.signals.map(t => t.toLowerCase())))}` : ""}${s.nSignals > s.signals.length ? ", and others" : ""}.`
+    : `No ${s.kindType} problem is reported more often than for ${esc(bgText(s.bg))} by the selected rule (${esc(s.ruleText)}).`);
   p.push("A report does not show that the device caused the event, and MAUDE cannot give rates.");
   return p.map(x => `<p>${x}</p>`).join("");
 }
@@ -2909,6 +2953,7 @@ const state = {
   src: (params.get("src") || SOURCE_IDS.join(",")).split(",").filter(x => SOURCE_IDS.includes(x)),
   initial: params.get("initial") === "1", noSummary: params.get("nosummary") === "1",
   crit: CRITERIA[params.get("crit")] ? params.get("crit") : "ror",
+  bg: BACKGROUNDS.some(b => b.id === params.get("bg")) ? params.get("bg") : "all",  // version 0.9: the comparison background
   sort: { key: "rorLo", dir: -1 }, filter: "", minA: 1, onlySig: false,
   result: null, selected: null, yMin: 1991, yMax: new Date().getFullYear(),
   tab: TABS.includes(tabParam) ? tabParam : params.get("view") === "reports" ? "reports"
@@ -2936,6 +2981,7 @@ function saveUrl() {
   if (state.noSummary) p.set("nosummary", "1");
   if (state.kind !== "dp") p.set("kind", state.kind);
   if (state.crit !== "ror") p.set("crit", state.crit);
+  if (state.bg !== "all") p.set("bg", state.bg);
   if (state.tab !== "overview") p.set("tab", state.tab);
   if (state.page !== "device") p.set("page", state.page);
   history.replaceState(null, "", `${location.pathname}${p.toString() ? "?" + p : ""}`);
@@ -3133,6 +3179,8 @@ async function start() {
     if (M.tables.reports) await q(`CREATE VIEW reports AS SELECT * FROM ${tableSql("reports")}`);
     if (M.tables.text_pc) await q(`CREATE VIEW text_pc AS SELECT * FROM ${tableSql("text_pc")}`);
     if (M.tables.timely) for (const t of ["timely", "tl_mfr", "tl_dev"]) await q(`CREATE VIEW ${t} AS SELECT * FROM ${tableSql(t)}`);
+    if (["bg_pc", "bg_totals", "bg_dp", "bg_pp"].every(t => M.tables[t]?.length))  // version 0.9: the comparison background
+      for (const t of ["bg_pc", "bg_totals", "bg_dp", "bg_pp"]) await q(`CREATE VIEW ${t} AS SELECT * FROM ${tableSql(t)}`);
     for (const t of ["reports", "text_pc"]) {  // version 0.6.1 data: the product code range of each file (tableFor)
       const r = M.file_ranges?.[t];
       if (M.tables[t] && Array.isArray(r) && r.length === M.tables[t].length) FILE_RANGES[t] = { ranges: r, sql: idx => fileSql(t, idx) };
@@ -3427,11 +3475,27 @@ function renderTab(tab) {
 /* ------------------------------------------------------------------ data of the selection (memoized) */
 /* Version 0.8: the stored EBGM prior (precompute.mjs) for the selection, or null. exact = false: the filters or a brand
    make another selection than the selection of the fit (the prior is an approximation, and the page says so). */
-const ebgmNow = kind => ebgmPriorUse(M.ebgm, kind, filters(), Boolean(state.brand && state.v06));
+const ebgmNow = (kind, g = null) => ebgmPriorUse(M.ebgm, kind, filters(), Boolean(state.brand && state.v06), g);
 const ebgmAny = () => ["dp", "pp"].some(k => ebgmPriorUse(M.ebgm, k, filters()));
-const sigTable = kind => memo(`sig:${kind}`, async () => (state.brand && state.v06)
-  ? signalTableSel(q, await analysisCohort(), schema(), hasText(), filters(), kind, "true", ebgmNow(kind))
-  : signalTable(q, filters(), state.pc, kind, ebgmNow(kind)));
+/* Version 0.9: the comparison background (the select "Compared with" of the Signals tab; every signal table of the page
+   uses it: Overview, Signals, Compare, Methods and the downloads). hasBg(): the data have the background tables.
+   bgInfo(): the groups of the product code (bg_pc). bgUse(): { id, g, label, n_codes } of the background in use, or null
+   (all other reports; also when the product code has no group of the chosen kind with other product codes). */
+const hasBg = () => ["bg_pc", "bg_totals", "bg_dp", "bg_pp"].every(t => M.tables[t]?.length);
+const bgInfo = () => memo("bg", async () => (hasBg() && state.pc ? bgGroups(q, state.pc) : {}));
+async function bgUse() {
+  const groups = await bgInfo(), g = bgGroupOf(groups, state.bg);
+  return g ? { id: state.bg, ...groups[state.bg] } : null;
+}
+const bgOf = id => BACKGROUNDS.find(b => b.id === id) || BACKGROUNDS[0];
+const bgLabel = b => b ? `${bgOf(b.id).label}: ${b.label} (${b.g})` : BACKGROUNDS[0].label;
+const sigTable = kind => memo(`sig:${kind}:${state.bg}`, async () => {
+  const b = await bgUse(), g = b ? b.g : null;
+  const res = await ((state.brand && state.v06)
+    ? signalTableSel(q, await analysisCohort(), schema(), hasText(), filters(), kind, "true", ebgmNow(kind, g), g)
+    : signalTable(q, filters(), state.pc, kind, ebgmNow(kind, g), g));
+  return { ...res, bg: b };
+});
 async function selTrendRows(c) {
   return q(`WITH ${cohortCte(c, schema(), hasText(), false)} SELECT year::INTEGER AS y, event AS ev, count(*)::DOUBLE AS n FROM y
             WHERE year IS NOT NULL GROUP BY ALL ORDER BY y`);
@@ -3515,13 +3579,13 @@ RENDER.overview = async key => {
   const res = await sigTable("dp");
   if (!live(key)) throw STALE;
   const ranked = rankedSignals(res.rows, state.crit);
-  $("ovSigSub").textContent = `Device problems, compared with all other device types. Rule: ${CRITERIA[state.crit].label}.`;
+  $("ovSigSub").textContent = `Device problems, compared with ${res.bg ? bgText(res.bg) : "all other device types"}. Rule: ${CRITERIA[state.crit].label}.`;
   $("ovSigs").innerHTML = ranked.slice(0, 5).map(r => `<li><span class="t">${esc(r.term || `Code ${r.code}`)}</span><span class="f">Signal</span>
       <span class="m">${NF.format(r.a)} reports · ${fmt(r.ror, 1)} times as often</span><span class="m x" style="text-align:right">q ${fmtLnP(r.lnQ)}</span></li>`).join("")
     || `<li><span class="m">No device problem meets the signal rule.</span></li>`;
   $("ovSigAll").textContent = `Open all ${NF.format(res.rows.length)} device problems`;
   $("ovShort").innerHTML = inShortHtml({ y0: state.y0, y1: state.y1, n, pc: state.pc, brand: state.brand, deaths, serious: pf ? pf.serious : 0, hasV06: Boolean(pf),
-    nSignals: ranked.length, signals: ranked.slice(0, 3).map(r => r.term || `code ${r.code}`), kindType: "device", ruleText: CRITERIA[state.crit].label });
+    nSignals: ranked.length, signals: ranked.slice(0, 3).map(r => r.term || `code ${r.code}`), kindType: "device", ruleText: CRITERIA[state.crit].label, bg: res.bg });
   document.querySelectorAll("#p-overview .v06").forEach(x => { x.hidden = !pf; });
   if (!pf) return;
   const oc = await outcomesData();
@@ -3555,11 +3619,13 @@ const COLS = [
   { key: "sig", label: "Signal" },
 ];
 const sigCols = () => COLS.filter(c => !c.ebgm || state.result?.prior);  // the EBGM columns only with a prior (version 0.8)
-function ebgmNoteText(res, kind) {  // which prior the EBGM values use
-  const e = M.ebgm, p = res && res.prior, k = e && e[kind];
-  if (!p) return e ? `No EBGM for ${KIND[kind].type} problems: ${e.format !== EBGM_FORMAT || e.hash !== ebgmHash() ? "the stored prior was made with other code of the page; run precompute.mjs again"
-    : !k ? "the data have no prior for them" : "the fit of the prior is not stable (equally good fits give another EB05, or a rate or a shape at a limit) or did not converge"}.` : "";
-  return `EBGM prior: ${ebgmPriorLabel(p)}, fitted on all ${NF.format(k.cells)} product code × ${KIND[kind].type} problem cells of all reports ${e.y0}–${e.y1}`
+function ebgmNoteText(res, kind) {  // which prior the EBGM values use (version 0.9: the prior of the background group)
+  const e = M.ebgm, p = res && res.prior, g = res && res.g, k = e && (g ? e.bg && e.bg[g] && e.bg[g][kind] : e[kind]);
+  if (!p) return e ? `No EBGM for ${KIND[kind].type} problems${g ? " with this comparison background" : ""}: ${e.format !== EBGM_FORMAT || e.hash !== ebgmHash() ? "the stored prior was made with other code of the page; run precompute.mjs again"
+    : !k ? (g ? "the data have no prior for this background; run precompute.mjs of version 0.9 or later" : "the data have no prior for them")
+    : "the fit of the prior is not stable (equally good fits give another EB05, or a rate or a shape at a limit) or did not converge"}.` : "";
+  return `EBGM prior: ${ebgmPriorLabel(p)}, fitted on all ${NF.format(k.cells)} product code × ${KIND[kind].type} problem cells of `
+    + `${g && res.bg ? `the product codes of this comparison background (${res.bg.label}), reports` : "all reports"} ${e.y0}–${e.y1}`
     + (p.exact ? "." : ". Approximate prior: this selection has other filters" + (state.brand ? " or a brand" : "") + " than the fit.");
 }
 const FMIN = 0.1, FMAX = 100, FW = 150;
@@ -3606,6 +3672,9 @@ function buildSignalControls() {
     $("pairReports").hidden = true; saveUrl(); renderTab("signals");
   }));
   $("crit").addEventListener("change", () => { state.crit = $("crit").value; saveUrl(); renderTable(); drawVolcano(); if (state.selected !== null) openPair(state.selected); });
+  $("bg").addEventListener("change", () => {  // version 0.9: another background gives other tables (memo key sig:kind:bg)
+    state.bg = bgOf($("bg").value).id; $("pairReports").hidden = true; saveUrl(); renderTab("signals");
+  });
   $("filt").addEventListener("input", () => { state.filter = $("filt").value.trim().toLowerCase(); renderTable(); });
   $("minA").addEventListener("change", () => { state.minA = Math.max(1, +$("minA").value | 0); $("minA").value = state.minA; renderTable(); });
   $("onlySig").addEventListener("change", () => { state.onlySig = $("onlySig").checked; renderTable(); });
@@ -3634,15 +3703,30 @@ RENDER.signals = async key => {
     $("resHead").innerHTML = ""; $("resBody").innerHTML = `<tr><td class="empty">Select at least one event type.</td></tr>`;
     $("count").textContent = ""; $("drawer").hidden = true; $("fig-volcano").innerHTML = ""; return;
   }
-  const res = await sigTable(state.kind);
+  const [groups, res] = [await bgInfo(), await sigTable(state.kind)];
   if (!live(key)) throw STALE;
   state.result = res;
-  $("sigNote").hidden = !state.brand;
-  $("sigNote").textContent = state.brand ? `Brand “${state.brand}”: the reports of product code ${state.pc} whose brand name contains this text, compared with all other reports (all other product codes and the other brands). The trend of the signal per year is given for the whole product code only.` : "";
+  fillBg(groups);
+  const b = res.bg, notes = [];
+  if (b) notes.push(`Compared with the ${NF.format(b.n_codes - 1)} other product code${b.n_codes === 2 ? "" : "s"} of ${bgOf(b.id).short} in the FDA product classification `
+    + `(${b.label}): ${NF.format(res.N)} reports with a ${KIND[state.kind].type} problem code. The expected counts and all measures use only these reports.`);
+  else if (state.bg !== "all") notes.push(`${state.pc} has no group of ${bgOf(state.bg).short} with other product codes${hasBg() ? "" : " in this data version"}: the table compares it with all other device types.`);
+  if (state.brand) notes.push(`Brand “${state.brand}”: the reports of product code ${state.pc} whose brand name contains this text, compared with ${b ? "the other reports of this background (its other product codes and the other brands)" : "all other reports (all other product codes and the other brands)"}. The trend of the signal per year is given for the whole product code only.`);
+  $("sigNote").hidden = !notes.length;
+  $("sigNote").textContent = notes.join(" ");
   renderTable();
   drawVolcano();
   if (state.selected !== null) await openPair(state.selected); else $("drawer").hidden = true;
 };
+/* The select "Compared with" (version 0.9): the backgrounds that the product code has; the others are disabled with the reason. */
+function fillBg(groups) {
+  $("bg").innerHTML = BACKGROUNDS.map(b => {
+    const x = groups[b.id], ok = b.id === "all" || Boolean(bgGroupOf(groups, b.id));
+    const why = b.id === "all" ? "" : !hasBg() ? " (not in this data version)" : !x ? " (no classification group)" : !ok ? ` (${x.label}: no other product code)` : "";
+    return `<option value="${b.id}"${ok ? "" : " disabled"}${x ? ` title="${esc(`${b.label}: ${x.label}, ${NF.format(x.n_codes)} product codes`)}"` : ""}>${esc(ok && x ? `${b.opt}: ${x.label} (${NF.format(x.n_codes)} codes)` : b.opt + why)}</option>`;
+  }).join("");
+  $("bg").value = bgGroupOf(groups, state.bg) ? state.bg : "all";
+}
 function drawVolcano() {
   const res = state.result; if (!res) return;
   const test = CRITERIA[state.crit].test, rows = res.rows.map(r => ({ ...r, sig: test(r) }));
@@ -3660,6 +3744,8 @@ function renderTable() {
   const rows = visibleRows(), res = state.result;
   if (!res) return;
   $("ebgmNote").textContent = ebgmNoteText(res, state.kind); $("ebgmNote").hidden = !$("ebgmNote").textContent;
+  document.querySelectorAll("#p-signals .bgw").forEach(x => { x.textContent = bgText(res.bg); });
+  document.querySelectorAll("#p-signals .bgw2").forEach(x => { x.textContent = res.bg ? bgText(res.bg) : "all other device types"; });
   const nSig = res.rows.filter(CRITERIA[state.crit].test).length;
   $("tblTitle").textContent = `${NF.format(res.rows.length)} ${KIND[state.kind].type} problems · ${NF.format(nSig)} signal${nSig === 1 ? "" : "s"}`;
   $("count").textContent = `${NF.format(rows.length)} of ${NF.format(res.rows.length)} problems shown, ${NF.format(rows.filter(r => r.sig).length)} signals`;
@@ -3677,10 +3763,10 @@ function renderTable() {
 }
 function signalSheet(rows, res, kind) {
   const head = ["product_code", "brand_contains", "problem_kind", "code", "term", "code_status", "a", "b", "c", "d", "expected", "ror", "ror_lo95", "ror_hi95",
-    "prr", "prr_lo95", "prr_hi95", "chi2_yates", "ic", "ic025", "ebgm", "eb05", "eb95", "ebgm_prior", "fisher_p_one_sided", "q_bh", "fdr_m", "signal", "signal_rule"];
+    "prr", "prr_lo95", "prr_hi95", "chi2_yates", "ic", "ic025", "ebgm", "eb05", "eb95", "ebgm_prior", "fisher_p_one_sided", "q_bh", "fdr_m", "signal", "signal_rule", "background"];
   const test = CRITERIA[state.crit].test, pr = ebgmPriorText(res.prior);
   return [head, ...rows.map(r => [state.pc, state.brand, KIND[kind].type, r.code, r.term, r.status, r.a, r.b, r.c, r.d, r.expected, r.ror, r.rorLo, r.rorHi,
-    r.prr, r.prrLo, r.prrHi, r.chi2, r.ic, r.ic025, r.ebgm ?? null, r.eb05 ?? null, r.eb95 ?? null, pr, fmtLnP(r.lnP, 6), fmtLnP(r.lnQ, 6), res.m, test(r) ? 1 : 0, CRITERIA[state.crit].label])];
+    r.prr, r.prrLo, r.prrHi, r.chi2, r.ic, r.ic025, r.ebgm ?? null, r.eb05 ?? null, r.eb95 ?? null, pr, fmtLnP(r.lnP, 6), fmtLnP(r.lnQ, 6), res.m, test(r) ? 1 : 0, CRITERIA[state.crit].label, bgLabel(res.bg)])];
 }
 const ebgmPriorText = p => p ? `${ebgmPriorLabel(p, 0)}${p.exact ? "" : " (approximate)"}` : "";
 function exportCsv() {
@@ -3699,7 +3785,8 @@ function exportCsv() {
     { label: "years", get: () => `${state.y0}-${state.y1}` }, { label: "event_types", get: () => state.ev.join(" ") },
     { label: "report_sources", get: () => state.src.join(" ") }, { label: "initial_only", get: () => state.initial ? 1 : 0 },
     { label: "summary_left_out", get: () => state.noSummary ? 1 : 0},
-    { label: "signal_rule", get: () => CRITERIA[state.crit].label }, { label: "data_through", get: () => M.data_through },
+    { label: "signal_rule", get: () => CRITERIA[state.crit].label }, { label: "background", get: () => bgLabel(state.result.bg) },
+    { label: "data_through", get: () => M.data_through },
   ];
   download(new Blob([toCsv(rows, cols)], { type: "text/csv" }), `maude_${state.pc}${state.brand ? "_" + state.brand.replace(/[^A-Z0-9]+/g, "-").slice(0, 30) : ""}_${KIND[state.kind].type}_${state.y0}-${state.y1}.csv`);
 }
@@ -3719,7 +3806,7 @@ async function openPair(code) {
     <table class="two num" aria-label="2 by 2 table">
       <tr><th></th><th>This problem</th><th>Other problems</th></tr>
       <tr><th>${who}</th><td class="a">${NF.format(r.a)}</td><td>${NF.format(r.b)}</td></tr>
-      <tr><th>All other reports</th><td>${NF.format(r.c)}</td><td>${NF.format(r.d)}</td></tr>
+      <tr><th>${state.result.bg ? `Other reports, ${esc(state.result.bg.label)}` : "All other reports"}</th><td>${NF.format(r.c)}</td><td>${NF.format(r.d)}</td></tr>
     </table>
     <ul class="stats num">
       <li><span>ROR, times as often (95% CI)</span><span>${fmt(r.ror)} (${fmt(r.rorLo)}–${fmt(r.rorHi)})</span></li>
@@ -3740,7 +3827,8 @@ async function openPair(code) {
   d.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   if (state.brand) return;
   try {
-    const cr = await memo(`cum:${kind}:${code}`, () => cumulativeRor(q, f, pc, kind, code));
+    const g = state.result.g || null;
+    const cr = await memo(`cum:${kind}:${code}:${g}`, () => cumulativeRor(q, f, pc, kind, code, g));
     if (my !== pairSeq || !live(key)) return;
     $("firstYear").textContent = cr.firstYear ?? "none";
     setFig("cumror", `Signal over time: ${r.term || code}`, w => svgCumRor(cr.points, { w, label: "Lower 95% limit of the cumulative ROR per year" }));
@@ -4179,10 +4267,11 @@ RENDER.compare = async key => {
   if (!live(key)) throw STALE;
   drawSensitivity(sens);
 };
-const sensitivity = () => memo(`sens:${state.kind}:${state.crit}`, async () => {
+const sensitivity = () => memo(`sens:${state.kind}:${state.crit}:${state.bg}`, async () => {
   const c = await analysisCohort(), S = schema(), T = hasText();
   const desc = await sensitivityTable(q, c, S, T);
-  const sig = state.dims ? await sensitivitySignals(q, c, S, T, filters(), state.pc, state.kind, state.crit, Boolean(state.brand), ebgmNow(state.kind)) : null;
+  const b = await bgUse(), g = b ? b.g : null;
+  const sig = state.dims ? await sensitivitySignals(q, c, S, T, filters(), state.pc, state.kind, state.crit, Boolean(state.brand), ebgmNow(state.kind, g), g) : null;
   const res = await sigTable(state.kind);
   return { desc, sig, kind: state.kind, crit: state.crit, terms: new Map(res.rows.map(r => [r.code, r.term])) };
 });
@@ -4255,10 +4344,11 @@ function methodsSpec(res, n) {
   const scen = state.dims ? ["with initial reports only", "without summary reports", "with manufacturer reports only", "with user facility, distributor and voluntary reports only", "with the reports received from 2010"] : [];
   const rule = { ror: "a lower 95% confidence limit of the ROR above 1 with at least 3 reports", prr: "a PRR of 2 or more with a chi-square of 4 or more and at least 3 reports (Evans criteria)",
     ic: "an IC025 above 0", fdr: `a Benjamini-Hochberg q-value below ${FDR_LEVEL} with at least 3 reports`, ebgm: `an EB05 above ${EBGM_LEVEL}` }[state.crit];
-  const ek = res.prior && M.ebgm && M.ebgm[state.kind];
-  const ebgm = ek ? { ...ebgmPick(res.prior), exact: res.prior.exact, cells: ek.cells, y0: M.ebgm.y0, y1: M.ebgm.y1 } : null;
+  const ek = res.prior && M.ebgm && (res.g ? M.ebgm.bg && M.ebgm.bg[res.g] && M.ebgm.bg[res.g][state.kind] : M.ebgm[state.kind]);
+  const ebgm = ek ? { ...ebgmPick(res.prior), exact: res.prior.exact, cells: ek.cells, y0: M.ebgm.y0, y1: M.ebgm.y1, bg: Boolean(res.g) } : null;
   return { version: APP_VERSION, dataTag: dataTag(), dataThrough: M.data_through, built: M.created, pc: state.pc, name: productOf(state.pc)?.name || "no device name",
     brand: state.brand, y0: f.y0, y1: f.y1, events, allEvents: state.ev.length === EVENT_IDS.length, filters: filt, n, kindType: KIND[state.kind].type, N: res.N, nP: res.nP, m: res.m, ruleText: rule, scenarios: scen, ebgm,
+    bg: res.bg ? { id: res.bg.id, label: res.bg.label, n_codes: res.bg.n_codes } : null,
     timelyText: tlLast ? timelyMethods() : "" };
 }
 function timelyMethods() {
@@ -4278,9 +4368,9 @@ RENDER.methods = async key => {
   state.mtParas = methodsText(state.mk === "cohort" && !state.v06 ? "signals" : state.mk, methodsSpec(res, b.total));
   $("mtText").innerHTML = state.mtParas.map(t => `<p>${esc(t)}</p>`).join("");
   $("repLink").textContent = location.href;
-  const s = signalSql(filters(), state.pc, state.kind);
+  const s = signalSql(filters(), state.pc, state.kind, res.g);
   $("repSql").textContent = state.brand
-    ? `-- The selection (report table), then the problem codes of its reports:\nSELECT ... FROM reports\nWHERE ${cohortWhere(cohortOf(), schema(), hasText())}\n\n-- The other cells of the 2x2 tables:\n${signalSql(filters(), state.pc, state.kind).N}`
+    ? `-- The selection (report table), then the problem codes of its reports:\nSELECT ... FROM reports\nWHERE ${cohortWhere(cohortOf(), schema(), hasText())}\n\n-- The other cells of the 2x2 tables:\n${s.N}`
     : `${s.pairs};\n\n${s.nP};\n\n${s.N};`;
   $("citeText").textContent = citeText();
 };
@@ -4289,7 +4379,7 @@ RENDER.methods = async key => {
 async function analysisTables() {
   const S = schema(), T = hasText(), c = state.v06 ? await analysisCohort() : null;
   const b = await basics(), dp = await sigTable("dp"), pp = await sigTable("pp"), flow = await reportFlow();
-  const sheets = [definitionsSheet(), { name: "Report flow", rows: [["Step", "Reports"], ...flow.steps.map(s => [s.sub ? `  ${s.label}` : s.label, s.n])] }];
+  const sheets = [definitionsSheet(dp.bg), { name: "Report flow", rows: [["Step", "Reports"], ...flow.steps.map(s => [s.sub ? `  ${s.label}` : s.label, s.n])] }];
   const yrs = yearMatrix(b.trend);
   if (state.v06) {
     const pf = await profile(), oc = await outcomesData();
@@ -4354,7 +4444,7 @@ async function analysisTables() {
   if (state.cmpLast) { const cols = compareCols(); sheets.push({ name: "Compare", rows: [cols.map(x => x.label), ...state.cmpLast.rows.map(r => cols.map(x => x.get(r)))] }); }
   return sheets;
 }
-function definitionsSheet() {
+function definitionsSheet(bg = state.result?.bg) {  // bg (version 0.9): the background of the signal tables of the file
   const p = productOf(state.pc);
   return { name: "Definitions", rows: [["Item", "Value"],
     ["Tool", `MAUDE Signal Explorer ${APP_VERSION}`], ["Data version", dataTag()], ["Data: reports received up to", M.data_through], ["Data built", M.created],
@@ -4362,11 +4452,12 @@ function definitionsSheet() {
     ["Event types", state.ev.map(e => EVENTS.find(x => x.id === e).label).join(", ")],
     ["Report sources", state.src.map(x => SOURCES.find(s => s.id === x).label).join(", ")], ["Initial reports only", state.initial ? "yes" : "no"],
     ["Summary reports left out", state.noSummary ? "yes" : "no"], ["Signal rule", CRITERIA[state.crit].label],
+    ["Comparison background", bgLabel(bg)],
     ["Unit", "One report (MDR report key); counts are distinct reports."],
-    ["2x2 table", "a: reports of the selection with the problem code; b: reports of the selection with another problem code of the same kind; c: other reports with the problem code; d: all other reports. Only reports with at least one problem code of the kind."],
+    ["2x2 table", "a: reports of the selection with the problem code; b: reports of the selection with another problem code of the same kind; c: other reports of the comparison background with the problem code; d: all other reports of the comparison background. Only reports with at least one problem code of the kind. Background: all other device types, or (version 0.9) the other product codes of the same medical specialty or the same device class of the FDA product classification."],
     ["ROR", "Reporting odds ratio with 95% CI (log method); 0.5 in each cell if a cell is 0."], ["PRR", "Proportional reporting ratio with 95% CI and the Yates chi-square."],
     ["IC025", "Lower limit of the information component (BCPNN, simplified formula)."],
-    ["EBGM, EB05, EB95", "Empirical Bayes geometric mean of the gamma-Poisson shrinker with two gamma components (DuMouchel 1999) and its 5% and 95% posterior limits; prior fitted on all product code x problem code cells of all reports, with the likelihood of the mixture conditioned on at least one report. EBGM rule: EB05 above 2."],
+    ["EBGM, EB05, EB95", "Empirical Bayes geometric mean of the gamma-Poisson shrinker with two gamma components (DuMouchel 1999) and its 5% and 95% posterior limits; prior fitted on all product code x problem code cells of all reports (with a comparison background: of the product codes of the background group), with the likelihood of the mixture conditioned on at least one report. EBGM rule: EB05 above 2."],
     ["p and q", "One-sided Fisher exact test; Benjamini-Hochberg q over all problem codes of the table (text, because some values are below 1e-308)."],
     ["Patient measures", "Reports with a patient record; age and sex of the first patient; a report has an outcome if any of its patients has it."],
     ["Serious outcome", "Death, life-threatening, hospitalization, disability, congenital anomaly or required intervention."],
@@ -4378,11 +4469,12 @@ function definitionsSheet() {
 const SHEET_CSV = rows => "﻿" + rows.map(r => r.map(v => { const s = v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v)) ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(",")).join("\n");
 async function downloadAll(kind) {
   if (kind === "json") {
-    const f = filters();
+    const f = filters(), b = await bgUse();
     return download(new Blob([JSON.stringify({ tool: "MAUDE Signal Explorer", version: APP_VERSION, data_version: dataTag(), data_through: M.data_through, data_built: M.created,
-      link: location.href, selection: { product_code: state.pc, brand_contains: state.brand, ...f, kind: KIND[state.kind].type, signal_rule: state.crit, signal_rule_label: CRITERIA[state.crit].label },
-      sql: { signal_table: signalSql(f, state.pc, state.kind), report_table_where: state.v06 ? cohortWhere(cohortOf(), schema(), hasText()) : null },
-      definitions: Object.fromEntries(definitionsSheet().rows.slice(15)) }, null, 2)], { type: "application/json" }), `${figFile("definition")}.json`);
+      link: location.href, selection: { product_code: state.pc, brand_contains: state.brand, ...f, kind: KIND[state.kind].type, signal_rule: state.crit, signal_rule_label: CRITERIA[state.crit].label,
+        background: b ? { choice: b.id, group: b.g, label: b.label, product_codes: b.n_codes } : { choice: "all" } },
+      sql: { signal_table: signalSql(f, state.pc, state.kind, b ? b.g : null), report_table_where: state.v06 ? cohortWhere(cohortOf(), schema(), hasText()) : null },
+      definitions: Object.fromEntries((r => r.slice(r.findIndex(x => x[0] === "2x2 table")))(definitionsSheet(b).rows)) }, null, 2)], { type: "application/json" }), `${figFile("definition")}.json`);
   }
   await work(async () => {
     const key = state.key;
