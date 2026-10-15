@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MAUDE Signal Explorer</title>
-<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.9/">
+<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.9.1/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231D5FA8'/><path d='M6 22h6l3-12 4 16 3-8h4' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -853,23 +853,36 @@ const BACKGROUNDS = [
   { id: "class", label: "Same device class", opt: "Same class", short: "the same device class" },
 ];
 const bgSafe = g => /^(spec|class):[A-Za-z0-9]{1,8}$/.test(g || "") ? g : null;
+/* Version 0.9.1 (2026-10-15, problem 92): a group is a background only with at least BG_MIN_REPORTS reports (the real
+   data: Medical genetics has 5 product codes and 9 reports; its EBGM prior was a point mass fitted on 9 cells). */
+const BG_MIN_REPORTS = 1000;
 const bgCodeSql = (kind, g) => g ? `bg_${kind} WHERE g = '${g}' AND` : `code_${kind} WHERE`;  // nE: reports with the code
 const bgTotSql = g => g ? `bg_totals WHERE g = '${g}' AND` : "totals WHERE";  // N: reports with a code of the kind
-/* The groups of a product code: { spec: { g, label, n_codes }, class: {...} } (n_codes: product codes with reports in
-   the group); {} if the data have no background tables or the product code has no classification. */
+/* The groups of a product code: { spec: { g, label, n_codes, n_reports }, class: {...} } (n_codes: product codes with
+   reports in the group; n_reports (0.9.1): distinct reports of the group, all years, from bg_totals); {} if the data have
+   no background tables or the product code has no classification. */
 async function bgGroups(q, pc) {
   const p = safePc(pc);
   if (!p) return {};
-  const rows = await q(`SELECT bg, g, label, n_codes::INTEGER AS n_codes FROM bg_pc WHERE pc = '${p}'`);
+  const rows = await q(`SELECT p.bg, p.g, p.label, p.n_codes::INTEGER AS n_codes,
+      coalesce((SELECT sum(t.n_all) FROM bg_totals t WHERE t.g = p.g), 0)::DOUBLE AS n_reports FROM bg_pc p WHERE p.pc = '${p}'`);
   return Object.fromEntries(rows.filter(r => bgSafe(r.g) && BACKGROUNDS.some(b => b.id === r.bg))
-    .map(r => [r.bg, { g: r.g, label: r.label || r.g, n_codes: Number(r.n_codes) }]));
+    .map(r => [r.bg, { g: r.g, label: r.label || r.g, n_codes: Number(r.n_codes), n_reports: Number(r.n_reports) }]));
+}
+/* Version 0.9.1: all groups that can be a background (two or more product codes, at least BG_MIN_REPORTS reports), for
+   the EBGM priors of precompute.mjs and validate.mjs: [{ g, label, n_codes, n_reports }] in the order of g. */
+async function bgList(q) {
+  const rows = await q(`SELECT p.g, any_value(p.label) AS label, count(*)::INTEGER AS n_codes, coalesce(any_value(t.n), 0)::DOUBLE AS n_reports
+      FROM bg_pc p LEFT JOIN (SELECT g, sum(n_all) AS n FROM bg_totals GROUP BY g) t USING (g) GROUP BY p.g ORDER BY p.g`);
+  return rows.map(r => ({ g: r.g, label: r.label || r.g, n_codes: Number(r.n_codes), n_reports: Number(r.n_reports) }))
+    .filter(r => bgSafe(r.g) && r.n_codes >= 2 && r.n_reports >= BG_MIN_REPORTS);
 }
 /* The group key g of the choice bg for a product code with the groups of bgGroups, or null (all other reports). null
-   also when the product code has no such group or the group has no other product code (the 2x2 table would compare the
-   product code with itself). */
+   also when the product code has no such group, the group has no other product code (the 2x2 table would compare the
+   product code with itself), or (0.9.1) the group has fewer than BG_MIN_REPORTS reports. */
 function bgGroupOf(groups, bg) {
   const x = bg && bg !== "all" && groups ? groups[bg] : null;
-  return x && x.n_codes >= 2 ? bgSafe(x.g) : null;
+  return x && x.n_codes >= 2 && x.n_reports >= BG_MIN_REPORTS ? bgSafe(x.g) : null;
 }
 /* The background of a result in words: b = { id, label, n_codes } (the group of bgGroups with its choice id), or null. */
 function bgText(b) {
@@ -1492,19 +1505,31 @@ function ebgmHash() {  // FNV-1a (32 bit) of the code that decides the stored pr
   for (let i = 0; i < src.length; i++) { h ^= src.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
   return h.toString(16).padStart(8, "0");
 }
+/* Version 0.9.1 (2026-10-15, problem 91): a prior is used only if it is SPECIFIC: one report cannot meet the EBGM rule.
+   The EB05 of one report falls when its expected count E grows (measured on the 54 priors of the real data, 0.9), so its
+   largest value is at the smallest expected count of a cell of the fit, E = 1/N (one report of the product code and one
+   report of the comparator with the code, N reports with a code of the kind). On the real data the priors of all reports
+   are specific (EB05 of one report at most 1.59), but with the priors of the groups Dental (device and patient problems),
+   Clinical chemistry (device problems) and Class 3 one report gave EB05 above 2 (Dental: up to 17.9). As for the
+   one-component prior of 0.8 (problem 79), such a prior has no specificity and is not used. A selection has fewer reports
+   than the fit (N smaller, so E = 1/N larger): a specific prior stays specific there. */
+function ebgmOneReport(p) {  // EB05 of one report at E = 1/N of the fit (Infinity without N)
+  return p && p.N > 0 ? ebgmPost2(1, 1 / p.N, p).eb05 : Infinity;
+}
+const ebgmSpecific = p => ebgmOneReport(p) <= EBGM_LEVEL;  // one report never meets the rule EB05 > EBGM_LEVEL
 /* The stored prior (manifest.ebgm) for a selection: { a1, b1, a2, b2, P, w, boundary, exact } or null (no prior, another
-   code, not stable).
+   code, not stable, (0.9.1) not specific).
    exact = true: the selection is the selection of the fit (the same count-table filters, no brand); else the prior is
    an approximation. g (version 0.9): the prior of the background group g (manifest.ebgm.bg[g]). */
 function ebgmPriorUse(info, kind, f, sel = false, g = null) {
   const G = bgSafe(g), ok = info && info.format === EBGM_FORMAT && info.hash === ebgmHash();
   const p = ok ? (G ? info.bg && info.bg[G] && info.bg[G][kind] : info[kind]) : null;
-  if (!p || !p.stable || !p.converged || ![p.a1, p.b1, p.a2, p.b2].every(v => v > 0) || !(p.P > 0 && p.P < 1)) return null;
+  if (!p || !p.stable || !p.converged || ![p.a1, p.b1, p.a2, p.b2].every(v => v > 0) || !(p.P > 0 && p.P < 1) || !ebgmSpecific(p)) return null;
   const h = { ...f, ev: EVENT_IDS.filter(e => f.ev.includes(e)), src: SOURCE_IDS.filter(x => (f.src || SOURCE_IDS).includes(x)) };
   return { ...ebgmPick(p), exact: !sel && filterSql(h) === info.where, ...(G ? { g: G } : {}) };
 }
 /* The prior of each year of a time series (validate.mjs: the reports received up to the end of each year): the fit of
-   the year if it is stable and converged, else the prior of the nearest EARLIER year with such a fit (never a later
+   the year if it is stable, converged and (0.9.1) specific, else the prior of the nearest EARLIER year with such a fit (never a later
    year: no knowledge of the future) if that year is at most maxGap years earlier, else null. Version 0.8, problem 77:
    without the limit, the first real run used the prior of 1993 (605 cells) for every year to 2026. */
 function ebgmPick(p) {  // the numbers of a prior that the posterior and its label use
@@ -1513,7 +1538,7 @@ function ebgmPick(p) {  // the numbers of a prior that the posterior and its lab
 function ebgmPriorSeries(fits, maxGap = EBGM_MAX_GAP) {
   let last = null;
   return fits.map(({ y, fit }) => {
-    if (fit && fit.stable && fit.converged) return (last = { ...ebgmPick(fit), exact: true, from: y });
+    if (fit && fit.stable && fit.converged && ebgmSpecific(fit)) return (last = { ...ebgmPick(fit), exact: true, from: y });
     return last && y - last.from <= maxGap ? { ...last, exact: false } : null;
   });
 }
@@ -2281,7 +2306,7 @@ function toCsv(rows, cols) {
   return [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(c.get(r))).join(","))].join("\n");
 }
 /* ================================================================== version 0.6: page analyses, charts and exports */
-const APP_VERSION = "0.9";
+const APP_VERSION = "0.9.1";
 const NF = new Intl.NumberFormat("en-US");
 const fmt = (v, d = 2) => !Number.isFinite(v) ? "–" : (Math.abs(v) >= 1000 ? NF.format(Math.round(v)) : v.toFixed(d));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -2859,6 +2884,7 @@ function ebgmMethods(s) {  // the sentences on EBGM of the Methods text (version
     + `shrinker with two gamma components (DuMouchel 1999). Its prior was fitted by maximum likelihood on all `
     + `${NF.format(e.cells)} product code by ${s.kindType} problem code combinations of ${e.bg ? "the product codes of this comparison group (with the expected counts of the group), with the" : "all"} reports received from ${e.y0} to ${e.y1}, `
     + `with the likelihood of the mixture conditioned on at least one report (${ebgmPriorLabel(e)})${e.exact ? "" : "; the analysis used this prior for its selection without a new fit"}.`
+    + " A prior was used only if one report could not reach EB05 above 2 with it, also at the smallest possible expected count."
     + (e.boundary ? " Both shapes of the fit were at the lower limit; the prior is then identified only through the two rates and the effective weight of the first component, which also determine the posterior." : "");
 }
 const READUS_PV = [
@@ -3623,7 +3649,8 @@ function ebgmNoteText(res, kind) {  // which prior the EBGM values use (version 
   const e = M.ebgm, p = res && res.prior, g = res && res.g, k = e && (g ? e.bg && e.bg[g] && e.bg[g][kind] : e[kind]);
   if (!p) return e ? `No EBGM for ${KIND[kind].type} problems${g ? " with this comparison background" : ""}: ${e.format !== EBGM_FORMAT || e.hash !== ebgmHash() ? "the stored prior was made with other code of the page; run precompute.mjs again"
     : !k ? (g ? "the data have no prior for this background; run precompute.mjs of version 0.9 or later" : "the data have no prior for them")
-    : "the fit of the prior is not stable (equally good fits give another EB05, or a rate or a shape at a limit) or did not converge"}.` : "";
+    : !(k.stable && k.converged) ? "the fit of the prior is not stable (equally good fits give another EB05, or a rate or a shape at a limit) or did not converge"
+    : `with this prior one report could meet the EBGM rule (EB05 ${ebgmOneReport(k).toFixed(2)} for one report where ${NF.format(k.N)} reports give an expected count of 1/${NF.format(k.N)}): the prior has no specificity`}.` : "";
   return `EBGM prior: ${ebgmPriorLabel(p)}, fitted on all ${NF.format(k.cells)} product code × ${KIND[kind].type} problem cells of `
     + `${g && res.bg ? `the product codes of this comparison background (${res.bg.label}), reports` : "all reports"} ${e.y0}–${e.y1}`
     + (p.exact ? "." : ". Approximate prior: this selection has other filters" + (state.brand ? " or a brand" : "") + " than the fit.");
@@ -3722,7 +3749,8 @@ RENDER.signals = async key => {
 function fillBg(groups) {
   $("bg").innerHTML = BACKGROUNDS.map(b => {
     const x = groups[b.id], ok = b.id === "all" || Boolean(bgGroupOf(groups, b.id));
-    const why = b.id === "all" ? "" : !hasBg() ? " (not in this data version)" : !x ? " (no classification group)" : !ok ? ` (${x.label}: no other product code)` : "";
+    const why = b.id === "all" ? "" : !hasBg() ? " (not in this data version)" : !x ? " (no classification group)"
+      : ok ? "" : x.n_codes < 2 ? ` (${x.label}: no other product code)` : ` (${x.label}: ${NF.format(x.n_reports)} reports; at least ${NF.format(BG_MIN_REPORTS)} needed)`;
     return `<option value="${b.id}"${ok ? "" : " disabled"}${x ? ` title="${esc(`${b.label}: ${x.label}, ${NF.format(x.n_codes)} product codes`)}"` : ""}>${esc(ok && x ? `${b.opt}: ${x.label} (${NF.format(x.n_codes)} codes)` : b.opt + why)}</option>`;
   }).join("");
   $("bg").value = bgGroupOf(groups, state.bg) ? state.bg : "all";
