@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MAUDE Signal Explorer</title>
-<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v0.9.1/">
+<meta name="maude-data" content="https://huggingface.co/datasets/Niazch/maude-explorer-data/resolve/data-2026-09-30-v1.0/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231D5FA8'/><path d='M6 22h6l3-12 4 16 3-8h4' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -255,6 +255,10 @@ tbody tr.sel.sig td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 tbody tr.few { color: var(--muted); }
 .term { font-weight: 600; }
 .codeinfo { color: var(--muted); font-size: .82rem; margin-left: .35rem; font-weight: 400; font-variant-numeric: tabular-nums; }
+.devf { display: flex; flex-wrap: wrap; gap: .5rem; flex-basis: 100%; }
+.devf .f { min-width: 12rem; }
+.note.warn { color: var(--amber-ink); background: var(--amber-soft); padding: .45rem .7rem; border-radius: 8px; }
+.lim { color: var(--amber-ink); font-weight: 700; margin-left: .15rem; cursor: help; }
 .tag { display: inline-block; font-size: .74rem; padding: .02rem .45rem; border-radius: 999px; margin-left: .35rem; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); font-weight: 600; }
 .flag { display: inline-block; color: var(--amber-ink); background: var(--amber-soft); font-weight: 700; font-size: .78rem; padding: .08rem .55rem; border-radius: 999px; }
 td.forest, th.forest { padding-top: .2rem; padding-bottom: .2rem; text-align: center; }
@@ -443,6 +447,12 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
     <div class="chips" id="fSrc" role="group" aria-label="Report source"></div>
     <label class="check" title="Type of report includes I (initial). In the MAUDE files almost every report has I in its type of report (I, I,F, I,F,F and so on), so this filter leaves out very few reports. Reports with a follow-up (F) stay in."><input type="checkbox" id="fInitial"> Initial reports only</label>
     <label class="check"><input type="checkbox" id="fNoSummary"> Leave out summary reports</label>
+    <label class="check" id="fNoDupL" hidden title="Version 1.0: a report is a possible duplicate when an earlier report of the same product code has the same date of event, manufacturer and brand, the same patient age and sex or another report source, and almost the same narrative (word overlap 0.8 or more). On: the first report of each group stays, the later ones are left out of every tab and of the signal tables."><input type="checkbox" id="fNoDup" checked> Leave out possible duplicates (keep the first report)</label>
+    <span class="devf" role="group" aria-label="Device filter">
+      <label class="f">Brand contains<input id="fBrand" type="text" autocomplete="off" spellcheck="false"></label>
+      <label class="f">Brand does not contain<input id="fBrandNot" type="text" autocomplete="off" spellcheck="false"></label>
+      <label class="f" id="fModelL">Model number contains<input id="fModel" type="text" autocomplete="off" spellcheck="false"></label>
+    </span>
     <span class="note" id="moreNote"></span>
   </div>
   <p class="active" id="activeLine" hidden></p>
@@ -507,15 +517,19 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
           <button type="button" role="tab" id="tab-dp" aria-selected="true" data-kind="dp">Device problems</button>
           <button type="button" role="tab" id="tab-pp" aria-selected="false" data-kind="pp">Patient problems</button>
         </div>
+        <label id="unitL" title="Problem codes: each FDA problem code. IMDRF groups: the codes with the same level-2 IMDRF code together (for example Break with Fracture). Clinical concepts: pre-specified groups across the IMDRF hierarchy (for example all infection codes). A report counts once per group.">Unit <select id="unit"></select></label>
         <label>Signal rule <select id="crit"></select></label>
         <label>Compared with <select id="bg" aria-describedby="sigNote"></select></label>
+        <input type="text" id="bgCodes" placeholder="Product codes, e.g. DTB, NVN" aria-label="Product codes of the custom group" autocomplete="off" spellcheck="false" hidden>
         <input type="search" id="filt" placeholder="Filter problems" aria-label="Filter problems">
         <label>Minimum reports <input type="number" id="minA" min="1" value="1"></label>
         <label><input type="checkbox" id="onlySig"> Signals only</label>
+        <label title="Codes that say there is no problem, no information or no code, planned actions (elective removal or replacement), and codes entered in the other field. Off: they are not in the table, the ranking or the FDR family."><input type="checkbox" id="inclAdmin"> Include administrative codes</label>
         <button type="button" class="btn sm" id="export">CSV</button>
         <button type="button" class="btn sm" id="exportX">Excel</button>
       </div>
       <p class="note" id="sigNote" hidden></p>
+      <p class="note" id="sigNote2" hidden></p>
       <div class="sigtop">
         <div class="card x"><div class="cardhead"><h2>Volcano plot: size of the difference and strength of the evidence</h2><div class="figtools" data-fig="volcano"></div></div>
           <div class="fig" id="fig-volcano"></div>
@@ -537,6 +551,13 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
         observed to expected reports shrunk toward the prior, so that problems with few reports get smaller values; EB05: its lower 5% limit.
         Select a row or a point for the 2×2 table and the signal over time.</p>
       <p class="note res" id="ebgmNote" hidden></p>
+      <p class="note res" id="limNote" hidden></p>
+      <div class="card mt" id="sensCard">
+        <div class="cardhead"><h2>Sensitivity analysis of this selection</h2><button type="button" class="btn sm" id="sensRun">Calculate</button></div>
+        <p class="sub">The selection at the top (product code, brand, years, event types and more filters) again under each scenario, with the problem kind, signal rule and comparison background of this tab. Large changes show that a result depends on one group of reports. It does not use the cohorts of the Compare tab.</p>
+        <div class="tablewrap"><table class="stat num" id="sensTable"></table></div>
+        <p class="note res" id="sensNote"></p>
+      </div>
     </section>
 
     <!-- Outcomes and patients -->
@@ -586,6 +607,11 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
             <p class="sub">Reporter country, and U.S. state of the reporter (darker: more reports)</p>
             <div class="fig" id="fig-country"></div><div class="fig mt" id="fig-states"></div><p class="note res" id="geoNote"></p></div>
         </div>
+        <div class="card mt" id="bmCard"><h2>Brands and model numbers</h2>
+          <p class="sub">The brands and model numbers of this selection. Use them to define a cohort exactly (More filters: brand contains, brand does not contain, model number contains).</p>
+          <p class="note res" id="bmNote"></p>
+          <div class="g2"><div class="tablewrap"><table class="stat num" id="bmBrands"></table></div><div class="tablewrap"><table class="stat num" id="bmPairs"></table></div></div>
+        </div>
       </div>
     </section>
 
@@ -595,7 +621,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
       <div class="v06">
         <p class="note" id="trNote"></p>
         <div class="g2">
-          <div class="card"><div class="cardhead"><h2>Reports per year</h2><div class="figtools" data-fig="trend"></div></div>
+          <div class="card"><div class="cardhead"><h2>Reports received per year (reporting trend)</h2><div class="figtools" data-fig="trend"></div></div>
             <div class="fig" id="fig-trend"></div><p class="note">Orange line: Sen slope. Light bar: incomplete year, not tested.</p></div>
           <div class="card"><h2 id="mkTitle">Mann-Kendall test</h2><p class="result res" id="mkResult"></p><dl class="mkbox x mt wait" id="mkBox"></dl>
             <p class="note mt">The Mann-Kendall test asks whether the yearly counts go up or down more than by chance. The Sen slope is the median change per year.</p></div>
@@ -648,14 +674,17 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
             <div class="f grow"><span class="flab">Report source</span><div class="chips" id="cSrc"></div></div>
             <label class="check" title="Type of report includes I (initial). In the MAUDE files almost every report has I in its type of report (I, I,F, I,F,F and so on), so this filter leaves out very few reports. Reports with a follow-up (F) stay in."><input type="checkbox" id="cInitial"> Initial reports only</label>
             <label class="check"><input type="checkbox" id="cNoSummary"> Leave out summary reports</label>
+            <label class="check" id="cNoDupL" hidden><input type="checkbox" id="cNoDup"> Leave out possible duplicates (keep the first report)</label>
           </div>
         </fieldset>
         <fieldset class="group"><legend>Device and problem</legend>
           <div class="row">
             <label class="f">Brand contains<input id="cBrand" type="text" autocomplete="off"></label>
+            <label class="f">Brand does not contain<input id="cBrandNot" type="text" autocomplete="off"></label>
+            <label class="f cModel">Model number contains<input id="cModel" type="text" autocomplete="off"></label>
             <label class="f">Manufacturer contains<input id="cMfr" type="text" autocomplete="off"></label>
-            <label class="f">Device problem code<input id="cDpc" type="number" min="1" inputmode="numeric"></label>
-            <label class="f">Patient problem code<input id="cPpc" type="number" min="1" inputmode="numeric"></label>
+            <label class="f">Device problem codes<input id="cDpc" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" title="One or more codes, separated by commas: reports with any of them"></label>
+            <label class="f">Patient problem codes<input id="cPpc" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" title="One or more codes, separated by commas: reports with any of them"></label>
           </div>
         </fieldset>
         <fieldset class="group"><legend>Narrative text</legend>
@@ -696,27 +725,28 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
               <fieldset class="A"><legend>Cohort A</legend><div class="row">
                 <label class="f">Product codes<input id="aPcs" type="text" autocomplete="off" spellcheck="false"></label>
                 <label class="f">Brand contains<input id="aBrand" type="text" autocomplete="off"></label></div>
+                <div class="row"><label class="f">Brand does not contain<input id="aBrandNot" type="text" autocomplete="off"></label>
+                <label class="f cModel">Model number contains<input id="aModel" type="text" autocomplete="off"></label></div>
                 <div class="row"><label class="f">First year<select id="aY0"></select></label><label class="f">Last year<select id="aY1"></select></label></div></fieldset>
               <fieldset class="B"><legend>Cohort B</legend><div class="row">
                 <label class="f">Product codes<input id="bPcs" type="text" autocomplete="off" spellcheck="false"></label>
                 <label class="f">Brand contains<input id="bBrand" type="text" autocomplete="off"></label></div>
+                <div class="row"><label class="f">Brand does not contain<input id="bBrandNot" type="text" autocomplete="off"></label>
+                <label class="f cModel">Model number contains<input id="bModel" type="text" autocomplete="off"></label></div>
                 <div class="row"><label class="f">First year<select id="bY0"></select></label><label class="f">Last year<select id="bY1"></select></label></div></fieldset>
             </div>
+            <label class="check"><input type="checkbox" id="cmpExcl"> Cohort B without the reports of cohort A (cohorts that do not overlap)</label>
             <div class="actions"><button type="submit" class="btn primary">Compare</button><p class="note" id="cmpNote" style="margin:0">The event types and the more filters at the top apply to both cohorts.</p></div>
           </form>
         </div>
         <div id="cmpResult" hidden>
+          <p class="note warn mt" id="cmpOverlap" hidden></p>
           <div class="card mt"><div class="cardhead"><h2>Results</h2><button type="button" class="btn sm" id="cmpCsv">CSV</button></div>
             <div class="tablewrap"><table class="stat num" id="cmpTable"></table></div>
-            <p class="note">95% Wilson intervals; difference in percentage points with the Newcombe interval; p from the chi-square test, or Fisher's exact test (two-sided) when an expected count is below 5. Patient outcomes: share of the reports with a patient record.</p></div>
+            <p class="note">95% Wilson intervals; difference in percentage points with the Newcombe interval; p from the chi-square test, or Fisher's exact test (two-sided) when an expected count is below 5. Patient outcomes: share of the reports with a patient record. ROR, A vs B: the odds of the measure in cohort A against cohort B (log-method 95% CI). With large cohorts even a small difference has a small p, so read the size of the difference and the ROR, not only p.</p></div>
           <div class="card mt" style="max-width:52rem"><div class="cardhead"><h2>Shares with 95% CI</h2><div class="figtools" data-fig="dots"></div></div><div class="fig" id="fig-dots"></div><p class="note">Circles: cohort A; squares: cohort B. Log scale from 0.1% to 100%.</p></div>
         </div>
-        <div class="card mt">
-          <h2>Sensitivity analysis</h2>
-          <p class="sub">The main numbers again under each scenario. Large changes show that a result depends on one group of reports. The signal columns use the selected rule and problem kind of the Signals tab.</p>
-          <div class="tablewrap"><table class="stat num wait" id="sensTable"></table></div>
-          <p class="note res" id="sensNote"></p>
-        </div>
+        <p class="note mt">The sensitivity analysis is in the Signals tab: it repeats the selection at the top, not cohorts A and B.</p>
       </div>
     </section>
 
@@ -801,12 +831,12 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
 </main>
 <footer class="foot">
   <div>
-    <p><strong>MAUDE Signal Explorer</strong>, version 0.7, October 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
+    <p><strong>MAUDE Signal Explorer</strong>, version <span class="appVer"></span>, 2026. Built by Niaz Chalabianloo, Muanda Lab.</p>
     <p>Department of Physiology and Pharmacology, Schulich School of Medicine &amp; Dentistry, Western University, London, Ontario, Canada.</p>
   </div>
   <div>
     <p>Data: U.S. Food and Drug Administration, MAUDE download files (public data). This tool is not affiliated with or endorsed by the FDA. A report in MAUDE does not prove that a device caused an event.</p>
-    <p>Cite as: Chalabianloo N. MAUDE Signal Explorer (version 0.7) [software]. Muanda Lab, Western University; 2026.</p>
+    <p>Cite as: <span id="footCite">Chalabianloo N. MAUDE Signal Explorer (version <span class="appVer"></span>) [software]. Muanda Lab, Western University; 2026.</span></p>
   </div>
 </footer>
 <p id="status" role="status" aria-live="polite" hidden><span id="stMsg"></span><span id="stTime" aria-hidden="true"></span></p>
@@ -827,7 +857,42 @@ const EVENTS = [
   { id: "U", label: "No answer", color: "var(--unk)" },
 ];
 const EVENT_IDS = EVENTS.map(e => e.id);
-const KIND = { dp: { type: "device", label: "Device problems" }, pp: { type: "patient", label: "Patient problems" } };
+const KIND = { dp: { type: "device", label: "Device problems", base: "dp", unit: "code" },
+  pp: { type: "patient", label: "Patient problems", base: "pp", unit: "code" },
+  // Version 1.0 (review of 2026-10-16, point 3): groups of problem codes, each a kind with its own count tables of the
+  // pipeline (pair_, code_, idx_, bg_<kind>; a report counts once per group). The denominators (pc_dp, pc_pp, totals) are
+  // those of the base kind. imdrf: the level-2 IMDRF group of each code (crosswalk for codes without an IMDRF code);
+  // clinical: pre-specified concepts across the IMDRF hierarchy (concepts.csv of the pipeline).
+  dpi: { type: "device", label: "Device problems, IMDRF groups", base: "dp", unit: "imdrf" },
+  ppi: { type: "patient", label: "Patient problems, IMDRF groups", base: "pp", unit: "imdrf" },
+  dpc: { type: "device", label: "Device problems, clinical concepts", base: "dp", unit: "clinical" },
+  ppc: { type: "patient", label: "Patient problems, clinical concepts", base: "pp", unit: "clinical" } };
+const UNITS = [{ id: "code", suffix: "", label: "Problem codes", noun: "problem code", col: "Problem" },
+  { id: "imdrf", suffix: "i", label: "IMDRF groups", noun: "IMDRF group", col: "IMDRF group" },
+  { id: "clinical", suffix: "c", label: "Clinical concepts", noun: "clinical concept", col: "Clinical concept" }];
+const baseKind = kind => (KIND[kind] ? KIND[kind].base : "dp");
+const kindOf = (base, unit) => `${base === "pp" ? "pp" : "dp"}${(UNITS.find(u => u.id === unit) || UNITS[0]).suffix}`;
+const unitOf = kind => UNITS.find(u => u.id === (KIND[kind] || KIND.dp).unit) || UNITS[0];
+const isConcept = kind => unitOf(kind).id !== "code";
+/* Version 1.0 (review of 2026-10-16, point 4): administrative problem codes. They say that there is no problem, no
+   information or no code, a planned action, or they are entered in the wrong field: they are out of the ranking and of the
+   Benjamini-Hochberg family unless the user includes them (f.inclAdmin). The list comes from the terms of the real data
+   (diagnose_v10.py section E): IMDRF codes A24 to A27 (no device problem identified, no apparent adverse event, insufficient
+   information, no code available) and E24 (no clinical signs, insufficient information, no code available), the FDA terms
+   below (codes without an IMDRF code), and every code of the other field (status cross_type). A group of codes is
+   administrative when all its codes are. The EBGM prior is still fitted on all cells. */
+const ADMIN_TERMS = ["normal", "unknown (for use when the device problem is not known)", "other (for use when an appropriate device code cannot be identified)",
+  "elective replacement", "elective removal", "unable to confirm conditions of use", "adverse event without identified device or use problem",
+  "no apparent adverse event", "insufficient device problem information", "appropriate device problem term/code not available",
+  "appropriate term/code not available", "no clinical signs, symptoms or conditions", "no consequences or impact to patient",
+  "no known impact or consequence to patient", "insufficient information", "no patient involvement", "no code available", "no information",
+  "unknown (for use when the patient's condition is not known)", "other (for use when an appropriate patient code cannot be identified)",
+  "not applicable", "appropriate clinical signs, symptoms and conditions term/code not available"];
+const adminSql = d => `(coalesce(${d}.STATUS, '') = 'cross_type' OR regexp_matches(upper(coalesce(${d}.IMDRF_CODE, '')), '^(IMDRF:)?(A2[4-7]|E24)')
+    OR lower(regexp_replace(trim(coalesce(${d}.TERM, '')), '\\s+', ' ', 'g')) IN (${ADMIN_TERMS.map(t => `'${t.replace(/'/g, "''")}'`).join(", ")}))`;
+/* The dictionary table of the page (and of precompute.mjs, validate.mjs and the tests): one implementation. */
+// cols: the column names of the dictionary file (a dictionary without IMDRF_CODE, for example an old test fixture, gets NULL)
+const dictSql = (from, cols = null) => `CREATE TABLE dict AS SELECT CODE_TYPE, CODE, TERM, STATUS, ${!cols || cols.includes("IMDRF_CODE") ? "IMDRF_CODE" : "NULL::VARCHAR AS IMDRF_CODE"} FROM ${from}`;
 
 const FDR_LEVEL = 0.05;
 const EBGM_LEVEL = 2;
@@ -851,13 +916,53 @@ const BACKGROUNDS = [
   { id: "all", label: "All device types", opt: "All device types", short: "all other device types" },
   { id: "spec", label: "Same medical specialty", opt: "Same specialty", short: "the same medical specialty" },
   { id: "class", label: "Same device class", opt: "Same class", short: "the same device class" },
+  { id: "custom", label: "Custom group of product codes", opt: "Custom group", short: "the custom group" },
 ];
-const bgSafe = g => /^(spec|class):[A-Za-z0-9]{1,8}$/.test(g || "") ? g : null;
+/* Version 1.0 (review of 2026-10-16): a custom background, a group of product codes that the user names (for example the
+   pacing leads DTB and NVN: an active comparator). g = 'custom:DTB+NVN' (2 to CUSTOM_MAX product codes, sorted, the product
+   code of the selection included). Its counts come from the report table with the definitions of the background tables of
+   the pipeline (background_tables: src M, U, D, P or O; initial = type of report includes I; summary = summary report; a
+   report with two product codes of the group counts once), so bgCodeSql and bgTotSql give the same columns as bg_dp, bg_pp
+   and bg_totals. The page fits no EBGM prior, so there is no EBGM with a custom group. */
+const CUSTOM_MAX = 20;
+const customPcs = g => { const m = /^custom:([A-Z0-9]{3}(?:\+[A-Z0-9]{3}){1,19})$/.exec(g || ""); return m ? m[1].split("+") : null; };
+const customGroup = (pc, list) => {  // the key of a custom group from the product code and a typed list, or null (fewer than 2 codes)
+  // the product code of the selection first, so that a list of more than CUSTOM_MAX codes keeps it; then sorted
+  const a = [...new Set([pc, ...String(list || "").toUpperCase().split(/[^A-Z0-9]+/)].filter(x => /^[A-Z0-9]{3}$/.test(x)))].slice(0, CUSTOM_MAX).sort();
+  return a.length >= 2 && a.includes(pc) ? `custom:${a.join("+")}` : null;
+};
+const bgSafe = g => /^(spec|class):[A-Za-z0-9]{1,8}$/.test(g || "") || customPcs(g) ? g : null;
+/* Version 1.0: what the loaded data have (set by the page, precompute.mjs and the tests after they read the manifest):
+   dup = the report table has dup_extra and the count tables the dimension dup (point 1). */
+const DATA = { dup: false };
+function customRowsSql(g, col) {  // one row per report of the custom group: the dimensions of the count tables and a list column
+  const pcs = customPcs(g);
+  return `SELECT DISTINCT report_key, year AS y, event AS ev, CASE WHEN report_source IN ('M', 'U', 'D', 'P') THEN report_source ELSE 'O' END AS src,
+      contains(coalesce(type_of_report, ''), 'I') AS initial, coalesce(summary_report, '') = 'Y' AS summary,
+      ${DATA.dup ? "coalesce(dup_extra, false)" : "false"} AS dup, ${col}
+    FROM ${tableFor("reports", pcs)} WHERE product_code IN (${pcs.map(strLit).join(", ")})`;
+}
+/* The codes of a report as rows (report_key, c, and the dimensions) for a kind: problem codes, or (version 1.0) the groups
+   of the codes (concept_map of the pipeline; a report counts once per group). rows: SQL with report_key, the dimensions
+   and the list column codes. */
+function kindRowsSql(kind, rows) {
+  const dims = "report_key, y, ev, src, initial, summary, dup";
+  return isConcept(kind)
+    ? `SELECT DISTINCT ${dims.split(", ").map(x => "r." + x).join(", ")}, m.c FROM (SELECT ${dims}, unnest(codes) AS code FROM (${rows})) r
+       JOIN concept_map m ON m.kind = '${kind}' AND m.code = r.code`
+    : `SELECT DISTINCT ${dims}, unnest(codes) AS c FROM (${rows})`;
+}
 /* Version 0.9.1 (2026-10-15, problem 92): a group is a background only with at least BG_MIN_REPORTS reports (the real
    data: Medical genetics has 5 product codes and 9 reports; its EBGM prior was a point mass fitted on 9 cells). */
 const BG_MIN_REPORTS = 1000;
-const bgCodeSql = (kind, g) => g ? `bg_${kind} WHERE g = '${g}' AND` : `code_${kind} WHERE`;  // nE: reports with the code
-const bgTotSql = g => g ? `bg_totals WHERE g = '${g}' AND` : "totals WHERE";  // N: reports with a code of the kind
+const bgCodeSql = (kind, g) => customPcs(g)  // nE: reports with the code (version 1.0: or with the group of codes)
+  ? `(SELECT c, y, ev, src, initial, summary, dup, count(*)::BIGINT AS n FROM (${kindRowsSql(kind,
+       customRowsSql(g, `${baseKind(kind) === "pp" ? "patient" : "device"}_problem_codes AS codes`))}) GROUP BY ALL) cb_ WHERE`
+  : g ? `bg_${kind} WHERE g = '${g}' AND` : `code_${kind} WHERE`;
+const bgTotSql = g => customPcs(g)  // N: reports with a code of the kind
+  ? `(SELECT y, ev, src, initial, summary, dup, count(*)::BIGINT AS n_all, count(*) FILTER (WHERE len(coalesce(dp, [])) > 0)::BIGINT AS n_dp,
+       count(*) FILTER (WHERE len(coalesce(pp, [])) > 0)::BIGINT AS n_pp FROM (${customRowsSql(g, "device_problem_codes AS dp, patient_problem_codes AS pp")}) GROUP BY ALL) tb_ WHERE`
+  : g ? `bg_totals WHERE g = '${g}' AND` : "totals WHERE";
 /* The groups of a product code: { spec: { g, label, n_codes, n_reports }, class: {...} } (n_codes: product codes with
    reports in the group; n_reports (0.9.1): distinct reports of the group, all years, from bg_totals); {} if the data have
    no background tables or the product code has no classification. */
@@ -886,6 +991,7 @@ function bgGroupOf(groups, bg) {
 }
 /* The background of a result in words: b = { id, label, n_codes } (the group of bgGroups with its choice id), or null. */
 function bgText(b) {
+  if (b && b.id === "custom") return `the other device types of the custom group (${b.label})`;
   const x = b && BACKGROUNDS.find(y => y.id === b.id);
   return x && b.id !== "all" ? `the other device types of ${x.short} (${b.label})` : "other device types";
 }
@@ -900,6 +1006,9 @@ function filterSql(f) {
   if (src.length < SOURCE_IDS.length) w.push(`src IN (${(src.length ? src : ["-"]).map(x => `'${x}'`).join(",")})`);
   if (f.initial) w.push("initial");
   if (f.noSummary) w.push("NOT summary");
+  // version 1.0 (point 1): leave out the possible duplicates after the first report of their group (count-table dimension
+  // dup of the pipeline; the page sets noDup only for data that have it)
+  if (f.noDup) w.push("NOT dup");
   return w.join(" AND ");
 }
 
@@ -931,6 +1040,37 @@ function disp(a, nP, nE, N) {
     ic, ic025: ic - 3.3 * Math.pow(a + 0.5, -0.5) - 2 * Math.pow(a + 0.5, -1.5),
     lnP: fisherGreaterLnP(a, nP, nE, N),
   };
+}
+
+/* Version 1.0 (comment 2 of the review): the device filter of a selection (brand contains, brand does not contain, model
+   number contains) in words; "" without one. */
+function devFilterText(s) {
+  return [s.brand ? `brand contains "${s.brand}"` : "", s.brandNot ? `brand does not contain "${s.brandNot}"` : "",
+          s.model ? `model number contains "${s.model}"` : ""].filter(Boolean).join(", ");
+}
+/* Reports that two cohorts share (version 1.0, comment 2): A and B are cohorts as for cohortWhere. */
+async function cohortOverlap(q, A, B, S, hasText) {
+  const k = c => `SELECT report_key FROM ${tableFor("reports", c.pcs)} WHERE ${cohortWhere({ ...c, notIn: c.notIn || null }, S, hasText)}`;
+  const [r] = await q(`SELECT count(*)::DOUBLE AS n FROM (${k(A)} INTERSECT ${k(B)})`);
+  return r.n;
+}
+/* Version 1.0 (comment 5 of the review of 2026-10-16): the expected count E = nP nE / N (DuMouchel 1999; BCPNN) includes the
+   selection in nE and N, so the ratio a/E is at most N/nP (because a <= nE). EBGM and IC of every problem of a selection are
+   limited by this ratio; ROR and PRR compare with the other reports (c, d) and are not. (a/E) / (N/nP) = a/nE: the share of the
+   reports with the problem (in the comparison group) that are of this selection. Near 1, the problem is reported almost only
+   for this selection, and its EBGM and IC are at or near the limit. */
+const OE_NEAR = 0.9;
+const oeLimit = (nP, N) => (nP > 0 ? N / nP : Infinity);
+const limitShare = r => (r.a + r.c > 0 ? r.a / (r.a + r.c) : NaN);
+/* The note of the Signals tab on this limit; kindType "device" or "patient"; where: "" or ", Cardiovascular" (the group). */
+function limitNoteText(nP, N, kindType, where = "") {
+  if (!(nP > 0 && N > 0)) return "";
+  const L = oeLimit(nP, N), share = nP / N;
+  return `Limit of EBGM and IC025: this selection has ${NF.format(nP)} of the ${NF.format(N)} reports with a ${kindType} problem code${where} `
+    + `(${pctTxt(share, share < 0.01 ? 2 : 1)}). With the standard expected count E = nP × nE / N, the ratio of observed to expected reports `
+    + `therefore cannot be larger than N / nP = ${fmt(L, L < 10 ? 2 : 1)} for any problem, so EBGM cannot be much larger and IC not larger than `
+    + `log2(N / nP) = ${fmt(Math.log2(L), 2)}. ROR and PRR compare with the other reports and have no such limit. `
+    + `† marks a problem with at least ${Math.round(100 * OE_NEAR)}% of its reports${where ? " in this group" : ""} in this selection: its EBGM and IC025 are at or near the limit.`;
 }
 
 /* Fisher's exact test (one-sided) and Benjamini-Hochberg q-values. All probabilities are natural logarithms:
@@ -1476,7 +1616,7 @@ function ebgmPriorLabel(p, digits = 4) {
 function ebgmCellsSql(f, kind, g = null) {  // g (version 0.9): the cells of the product codes of a background group, E of that background
   const F = filterSql(f), G = bgSafe(g), m = G ? ` AND pc IN (SELECT pc FROM bg_pc WHERE g = '${G}')` : "";
   return `WITH a AS (SELECT pc, c, sum(n)::DOUBLE AS a FROM pair_${kind} WHERE ${F}${m} GROUP BY pc, c),
-     p AS (SELECT pc, sum(n)::DOUBLE AS np FROM pc_${kind} WHERE ${F}${m} GROUP BY pc),
+     p AS (SELECT pc, sum(n)::DOUBLE AS np FROM pc_${baseKind(kind)} WHERE ${F}${m} GROUP BY pc),
      e AS (SELECT c, sum(n)::DOUBLE AS ne FROM ${bgCodeSql(kind, G)} ${F} GROUP BY c)
 SELECT a.a, p.np * e.ne AS pe FROM a JOIN p USING (pc) JOIN e USING (c) WHERE a.a > 0 ORDER BY a.a, pe`;
 }
@@ -1485,15 +1625,15 @@ SELECT a.a, p.np * e.ne AS pe FROM a JOIN p USING (pc) JOIN e USING (c) WHERE a.
    g (version 0.9): the prior of a background group (DuMouchel's method on the reports of the group: the cells of its
    product codes, with E of that background). */
 async function ebgmPrior(q, f, kind, g = null) {
-  const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM ${bgTotSql(bgSafe(g))} ${filterSql(f)}`);
+  const [{ nn }] = await q(`SELECT coalesce(sum(n_${baseKind(kind)}), 0)::DOUBLE AS nn FROM ${bgTotSql(bgSafe(g))} ${filterSql(f)}`);
   const cells = await q(ebgmCellsSql(f, kind, g));
   if (!cells.length || !(nn > 0)) return null;
   const s = ebgmSquash(Float64Array.from(cells, r => r.a), Float64Array.from(cells, r => r.pe / nn), EBGM_BINS);
   return { ...ebgmFit2(s.n, s.e, s.w), cells: cells.length, rows: s.n.length, N: nn };
 }
 /* The selection of the stored prior (precompute.mjs): all reports of the years y0 to y1, as the default selection. */
-function ebgmCohort(y0, y1) {
-  return { y0, y1, ev: [...EVENT_IDS], src: [...SOURCE_IDS], initial: false, noSummary: false };
+function ebgmCohort(y0, y1, dup = false) {  // dup (version 1.0): the data have the dimension dup; the default leaves the duplicates out
+  return { y0, y1, ev: [...EVENT_IDS], src: [...SOURCE_IDS], initial: false, noSummary: false, ...(dup ? { hasDup: true, noDup: true } : {}) };
 }
 function ebgmHash() {  // FNV-1a (32 bit) of the code that decides the stored prior; the page uses the prior only if equal
   const src = [EBGM_FORMAT, EBGM_BINS, EBGM_FLOOR, EBGM_STABLE_MIN, EBGM_SHAPE_MAX, ebgmCohort, ebgmPrior, ebgmCellsSql, filterSql,
@@ -1547,43 +1687,60 @@ function withEbgm(rows, prior) {
 }
 
 /* The three queries of a signal table (shown on the Methods tab, so that a reader can run them again). */
+/* The term, status and administrative flag of each code of the step a (version 1.0: of each group of codes, from the table
+   concepts of the pipeline; a group is administrative when all its codes are; status 'group'). */
+function codeInfoSql(kind) {
+  const t = KIND[kind].type;
+  return isConcept(kind)
+    ? `SELECT a.c::INTEGER AS code, a.a, e.ne, cn.label AS term, 'group' AS status, cn.imdrf AS imdrf, len(cn.members)::INTEGER AS n_codes,
+  coalesce((SELECT bool_and(${adminSql("dd")}) FROM dict dd WHERE dd.CODE_TYPE = '${t}' AND list_contains(cn.members, dd.CODE)), false) AS admin
+FROM a JOIN e USING (c) LEFT JOIN concepts cn ON cn.c = a.c AND cn.kind = '${kind}'`
+    : `SELECT a.c::INTEGER AS code, a.a, e.ne, d.TERM AS term, d.STATUS AS status, coalesce(${adminSql("d")}, false) AS admin
+FROM a JOIN e USING (c) LEFT JOIN dict d ON d.CODE = a.c AND d.CODE_TYPE = '${t}'`;
+}
+/* Version 1.0 (point 4): the rows of a signal table without the administrative codes, unless f.inclAdmin. */
+const keepAdmin = (rows, f) => (f && f.inclAdmin ? rows : rows.filter(r => !r.admin));
 function signalSql(f, pc, kind, g = null) {  // g: the background group (version 0.9), or null: all other reports
   const F = filterSql(f), G = bgSafe(g);
   return {
     pairs: `WITH a AS (SELECT c, sum(n)::DOUBLE AS a FROM pair_${kind} WHERE pc = '${pc}' AND ${F} GROUP BY c),
      e AS (SELECT c, sum(n)::DOUBLE AS ne FROM ${bgCodeSql(kind, G)} c IN (SELECT c FROM a) AND ${F} GROUP BY c)
-SELECT a.c::INTEGER AS code, a.a, e.ne, d.TERM AS term, d.STATUS AS status
-FROM a JOIN e USING (c) LEFT JOIN dict d ON d.CODE = a.c AND d.CODE_TYPE = '${KIND[kind].type}'`,
-    nP: `SELECT coalesce(sum(n), 0)::DOUBLE AS np FROM pc_${kind} WHERE pc = '${pc}' AND ${F}`,
-    N: `SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM ${bgTotSql(G)} ${F}`,
+${codeInfoSql(kind)}`,
+    nP: `SELECT coalesce(sum(n), 0)::DOUBLE AS np FROM pc_${baseKind(kind)} WHERE pc = '${pc}' AND ${F}`,
+    N: `SELECT coalesce(sum(n_${baseKind(kind)}), 0)::DOUBLE AS nn FROM ${bgTotSql(G)} ${F}`,
   };
 }
 
 async function signalTable(q, f, pc, kind, prior = null, g = null) {  // prior: of ebgmPriorUse (version 0.8), or null (no EBGM)
   const s = signalSql(f, pc, kind, g);  // g: the background group (version 0.9), or null: all other reports
-  const rows = await q(s.pairs);
+  const all = await q(s.pairs), rows = keepAdmin(all, f);  // version 1.0: without the administrative codes (f.inclAdmin)
   const [{ np }] = await q(s.nP);
   const [{ nn }] = await q(s.N);
   const out = withEbgm(withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) }))), prior);
-  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior, g: bgSafe(g) };
+  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior, g: bgSafe(g), nAdmin: all.length - rows.length };
 }
 
 /* Signal table of a selection of the report table (for example the reports of one brand): a and nP come from the
    selection (only reports that meet cond), nE and N from the count tables with the filters f. f and cond must describe
    the same reports as the selection; for a selection of one whole product code the result is that of signalTable. */
 async function signalTableSel(q, c, S, hasText, f, kind, cond = "true", prior = null, g = null) {
-  const col = kind === "pp" ? "patient_problem_codes" : "device_problem_codes", F = filterSql(f), G = bgSafe(g);
-  const rows = await q(`WITH ${cohortCte(c, S, hasText, /\bdup_group\b/.test(cond))},
-      u AS (SELECT unnest(${col}) AS c FROM y WHERE ${cond}),
+  const col = baseKind(kind) === "pp" ? "patient_problem_codes" : "device_problem_codes", F = filterSql(f), G = bgSafe(g);
+  const dup = /\bdup_(group|extra)\b/.test(cond);
+  // the codes of each report (a list of distinct codes), or (version 1.0) the distinct groups of its codes
+  const u = isConcept(kind)
+    ? `u AS (SELECT DISTINCT y.report_key, m.c FROM (SELECT report_key, unnest(${col}) AS code FROM y WHERE ${cond}) y
+         JOIN concept_map m ON m.kind = '${kind}' AND m.code = y.code)`
+    : `u AS (SELECT unnest(${col}) AS c FROM y WHERE ${cond})`;
+  const all = await q(`WITH ${cohortCte(c, S, hasText, dup)},
+      ${u},
       a AS (SELECT c, count(*)::DOUBLE AS a FROM u GROUP BY c),
       e AS (SELECT c, sum(n)::DOUBLE AS ne FROM ${bgCodeSql(kind, G)} c IN (SELECT c FROM a) AND ${F} GROUP BY c)
-    SELECT a.c::INTEGER AS code, a.a, e.ne, d.TERM AS term, d.STATUS AS status
-    FROM a JOIN e USING (c) LEFT JOIN dict d ON d.CODE = a.c AND d.CODE_TYPE = '${KIND[kind].type}'`);
-  const [{ np }] = await q(`WITH ${cohortCte(c, S, hasText, /\bdup_group\b/.test(cond))}
+    ${codeInfoSql(kind)}`), rows = keepAdmin(all, f);
+  const [{ np }] = await q(`WITH ${cohortCte(c, S, hasText, dup)}
     SELECT count(*) FILTER (WHERE (${cond}) AND len(coalesce(${col}, [])) > 0)::DOUBLE AS np FROM y`);
-  const [{ nn }] = await q(`SELECT coalesce(sum(n_${kind}), 0)::DOUBLE AS nn FROM ${bgTotSql(G)} ${F}`);
+  const [{ nn }] = await q(`SELECT coalesce(sum(n_${baseKind(kind)}), 0)::DOUBLE AS nn FROM ${bgTotSql(G)} ${F}`);
   const out = withEbgm(withFdr(rows.map(r => ({ ...r, ...disp(r.a, np, r.ne, nn) }))), prior);
-  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior, g: G };
+  return { nP: np, N: nn, m: out.filter(r => !Number.isNaN(r.lnP)).length, rows: out, prior, g: G, nAdmin: all.length - rows.length };
 }
 
 /* Signals in the order of the evidence: smallest q first, then more reports, then the code. */
@@ -1597,9 +1754,9 @@ async function cumulativeRor(q, f, pc, kind, code, g = null) {  // g: the backgr
   const F = filterSql(f), k = code | 0, G = bgSafe(g);
   const by = rows => new Map(rows.map(r => [r.y, r.n]));
   const A = by(await q(`SELECT y::INTEGER AS y, sum(n)::DOUBLE AS n FROM pair_${kind} WHERE pc = '${pc}' AND c = ${k} AND ${F} GROUP BY 1`));
-  const P = by(await q(`SELECT y::INTEGER AS y, sum(n)::DOUBLE AS n FROM pc_${kind} WHERE pc = '${pc}' AND ${F} GROUP BY 1`));
+  const P = by(await q(`SELECT y::INTEGER AS y, sum(n)::DOUBLE AS n FROM pc_${baseKind(kind)} WHERE pc = '${pc}' AND ${F} GROUP BY 1`));
   const E = by(await q(`SELECT y::INTEGER AS y, sum(n)::DOUBLE AS n FROM ${bgCodeSql(kind, G)} c = ${k} AND ${F} GROUP BY 1`));
-  const T = by(await q(`SELECT y::INTEGER AS y, sum(n_${kind})::DOUBLE AS n FROM ${bgTotSql(G)} ${F} GROUP BY 1`));
+  const T = by(await q(`SELECT y::INTEGER AS y, sum(n_${baseKind(kind)})::DOUBLE AS n FROM ${bgTotSql(G)} ${F} GROUP BY 1`));
   const points = [];
   let a = 0, nP = 0, nE = 0, N = 0;
   for (let y = f.y0; y <= f.y1; y++) {
@@ -1737,8 +1894,9 @@ function tableFor(t, pcs) {
 const FILE_PREFIX = "maude/";
 const FILE_REFRESH = 0.75, FILE_DEFAULT_MS = 10 * 60e3, FILE_MIN_MS = 60e3, FILE_RETRY_MS = 5 * 60e3;
 const VIEW_TABLES = ["pair_dp", "pair_pp", "pc_dp", "pc_pp", "code_dp", "code_pp", "idx_dp", "idx_pp", "pc_all", "master", "device",
-  "reports", "text_pc", "timely", "tl_mfr", "tl_dev", "bg_pc", "bg_totals", "bg_dp", "bg_pp"];
-const START_TABLES = ["totals", "dictionary", "classification", "products"];  // read completely by start()
+  "reports", "text_pc", "timely", "tl_mfr", "tl_dev", "bg_pc", "bg_totals", "bg_dp", "bg_pp",
+  ...["dpi", "ppi", "dpc", "ppc"].flatMap(k => ["pair", "code", "idx", "bg"].map(t => `${t}_${k}`))];  // version 1.0: concept kinds
+const START_TABLES = ["totals", "dictionary", "classification", "products", "concepts", "concept_map"];  // read completely by start()
 function urlExpiry(u) {  // when a signed address expires (ms since 1970), or null
   let sp;
   try { sp = new URL(u).searchParams; } catch (e) { return null; }
@@ -1829,7 +1987,11 @@ async function connectFiles({ M, base, register, fetchFn, run, reader = "read_pa
   return { files, q: files.queue(run), tableSql: t => list(tables[t]), fileSql: (t, idx) => list(idx.map(i => tables[t][i])) };
 }
 
-/* c = { pcs, d0, d1, ev, src, initial, noSummary, brand, mfr, dpc, ppc, incl, excl }; S = report table schema */
+/* c = { pcs, d0, d1, ev, src, initial, noSummary, brand, mfr, dpc, ppc, incl, excl }; S = report table schema.
+   Version 1.0 (comment 2 of the review of 2026-10-16): c.brandNot (brand does not contain), c.model (model number contains;
+   no report matches when the data have no model column, so the filter is never ignored without a sign), c.notIn (a cohort:
+   its reports are left out, for cohorts that do not overlap). A report with two devices has their brands and models joined
+   with "; ", so "does not contain" leaves it out when one of its devices has the text. */
 function cohortWhere(c, S, hasText) {
   const R = new Set(S.map(x => x[0]));
   const ev = c.ev.filter(e => EVENT_IDS.includes(e));
@@ -1844,18 +2006,28 @@ function cohortWhere(c, S, hasText) {
   if (R.has("report_source") && src.length < SOURCES.length) w.push(`report_source IN (${(src.length ? src : ["-"]).map(strLit).join(",")})`);
   if (c.initial && R.has("type_of_report")) w.push(`contains(coalesce(type_of_report, ''), 'I')`);
   if (c.noSummary && R.has("summary_report")) w.push(`coalesce(summary_report, '') <> 'Y'`);
+  // version 1.0 (point 1): the possible duplicates after the first report of their group (column of the pipeline)
+  if (c.noDup && R.has("dup_extra")) w.push("NOT dup_extra");
   if (c.brand && R.has("brand")) w.push(`contains(lower(coalesce(brand, '')), ${strLit(c.brand.toLowerCase())})`);
+  if (c.brandNot && R.has("brand")) w.push(`NOT contains(lower(coalesce(brand, '')), ${strLit(c.brandNot.toLowerCase())})`);
+  if (c.model) w.push(R.has("model") ? `contains(lower(coalesce(model, '')), ${strLit(c.model.toLowerCase())})` : "false");
   if (c.mfr) {
     const m = ["manufacturer", "manufacturer_g1"].filter(x => R.has(x)).map(x => `contains(lower(coalesce(${x}, '')), ${strLit(c.mfr.toLowerCase())})`);
     if (m.length) w.push(`(${m.join(" OR ")})`);
   }
   if (c.where) w.push(`(${c.where})`);  // a fixed condition set by the page (never text typed by the user)
-  if (Number.isInteger(c.dpc) && c.dpc > 0) w.push(`list_contains(device_problem_codes, ${c.dpc})`);
-  if (Number.isInteger(c.ppc) && c.ppc > 0) w.push(`list_contains(patient_problem_codes, ${c.ppc})`);
+  // version 1.0 (review of 2026-10-16): dpc and ppc can be lists (any of the codes); one code gives the same SQL as before
+  for (const [k, col] of [["dpc", "device_problem_codes"], ["ppc", "patient_problem_codes"]]) {
+    const v = (Array.isArray(c[k]) ? c[k] : [c[k]]).filter(x => Number.isInteger(x) && x > 0);
+    if (v.length) w.push(v.length === 1 ? `list_contains(${col}, ${v[0]})` : `(${v.map(x => `list_contains(${col}, ${x})`).join(" OR ")})`);
+  }
   if (hasText) {
     const sub = terms => `report_key IN (SELECT k FROM ${tableFor("text_pc", c.pcs)} WHERE pc IN (${c.pcs.map(strLit).join(",")}) AND (${terms.map(t => `contains(lower(text), ${strLit(t)})`).join(" OR ")}))`;
     if (c.incl.length) w.push(sub(c.incl));
     if (c.excl.length) w.push("NOT " + sub(c.excl));
+  }
+  if (c.notIn && Array.isArray(c.notIn.pcs) && c.notIn.pcs.length) {
+    w.push(`report_key NOT IN (SELECT report_key FROM ${tableFor("reports", c.notIn.pcs)} WHERE ${cohortWhere({ ...c.notIn, notIn: null }, S, hasText)})`);
   }
   return w.join("\n  AND ");
 }
@@ -1873,12 +2045,14 @@ function cohortCte(c, S, hasText, dup = true) {
     return `y AS (SELECT * FROM ${c.table})`;
   }
   const R = new Set(S.map(x => x[0])), b = cohortBase(c, S, hasText);
-  if (!dup) return `y AS (${b})`;
-  if (!R.has("date_of_event")) return `y AS (SELECT *, NULL::BIGINT AS dup_group FROM (${b}))`;
+  // version 1.0: the report table of the pipeline has dup_group and dup_extra (the rule of point 1), so no groups here
+  if (!dup || R.has("dup_extra")) return `y AS (${b})`;
+  if (!R.has("date_of_event")) return `y AS (SELECT *, NULL::BIGINT AS dup_group, false AS dup_extra FROM (${b}))`;
+  // data before version 1.0: the groups of the old key; every report of a group counts as a possible duplicate (dup_extra)
   // b is used twice: NOT MATERIALIZED, so that DuckDB never keeps all rows and columns of the selection in memory
   return `b AS NOT MATERIALIZED (${b}),
   g AS (${dupGroupsSql("b", S)}),
-  y AS (SELECT b.*, g.dup_group FROM b LEFT JOIN g ON ${dupJoin(S, "b")})`;
+  y AS (SELECT b.*, g.dup_group, g.dup_group IS NOT NULL AS dup_extra FROM b LEFT JOIN g ON ${dupJoin(S, "b")})`;
 }
 /* The groups of possible duplicates in the reports of "from": the key columns k0, k1, … and the number dup_group. */
 function dupGroupsSql(from, S) {
@@ -1909,11 +2083,16 @@ function dupKey(S) {
    (cheaper than the column dup_group, which needs a join of every report). */
 async function dupCounts(q, c, S, hasText) {
   const R = new Set(S.map(x => x[0]));
-  if (c.table) return (await q(`SELECT count(dup_group)::DOUBLE AS dup_reports, count(DISTINCT dup_group)::DOUBLE AS dup_groups FROM ${tableName(c.table)}`))[0];
-  if (!R.has("date_of_event")) return { dup_reports: 0, dup_groups: 0 };
+  // version 1.0: dup_extra = reports after the first of their group (the reports that "leave out possible duplicates"
+  // removes); data before 1.0: every report of a group
+  if (c.table) return (await q(`SELECT count(dup_group)::DOUBLE AS dup_reports, count(DISTINCT dup_group)::DOUBLE AS dup_groups,
+      count(*) FILTER (WHERE dup_extra)::DOUBLE AS dup_extra FROM ${tableName(c.table)}`))[0];
+  if (R.has("dup_extra")) return (await q(`SELECT count(dup_group)::DOUBLE AS dup_reports, count(DISTINCT dup_group)::DOUBLE AS dup_groups,
+      count(*) FILTER (WHERE dup_extra)::DOUBLE AS dup_extra FROM (${cohortBase(c, S, hasText)})`))[0];
+  if (!R.has("date_of_event")) return { dup_reports: 0, dup_groups: 0, dup_extra: 0 };
   const { cols, keyOf } = dupKey(S);
-  return (await q(`SELECT coalesce(sum(n), 0)::DOUBLE AS dup_reports, count(*)::DOUBLE AS dup_groups FROM (SELECT count(*) AS n
-    FROM (${cohortBase(c, S, hasText)}) WHERE date_of_event IS NOT NULL GROUP BY ${cols.map(x => keyOf(x)).join(", ")} HAVING count(*) > 1)`))[0];
+  return (await q(`SELECT coalesce(sum(n), 0)::DOUBLE AS dup_reports, count(*)::DOUBLE AS dup_groups, coalesce(sum(n), 0)::DOUBLE AS dup_extra
+    FROM (SELECT count(*) AS n FROM (${cohortBase(c, S, hasText)}) WHERE date_of_event IS NOT NULL GROUP BY ${cols.map(x => keyOf(x)).join(", ")} HAVING count(*) > 1)`))[0];
 }
 const tableName = t => { if (!/^[a-z_][a-z0-9_]*$/.test(t)) throw new Error("table name"); return t; };
 
@@ -1941,21 +2120,21 @@ async function cohortRows(q, c, S, hasText, mode, limit, withCls = false) {
   const R = new Set(S.map(x => x[0]));
   const order = mode === "sample" ? "h, report_key" : mode === "newest" ? "report_key DESC" : "report_key";
   const lim = limit ? ` LIMIT ${limit | 0}` : "";
-  if (c.table || !R.has("date_of_event")) {
+  if (c.table || !R.has("date_of_event") || R.has("dup_extra")) {  // version 1.0: the groups are columns of the report table
     await q(`CREATE OR REPLACE TEMP TABLE cohort_sel AS WITH ${cohortCte(c, S, hasText)} SELECT * FROM y ORDER BY ${order}${lim}`);
   } else {
     // the rows first, then their groups of possible duplicates (one aggregate over the selection, no join of every report)
     await q(`CREATE OR REPLACE TEMP TABLE cohort_rows AS WITH ${cohortCte(c, S, hasText, false)} SELECT * FROM y ORDER BY ${order}${lim}`);
     await q(`CREATE OR REPLACE TEMP TABLE cohort_sel AS WITH g AS (${dupGroupsSql(`(${cohortBase(c, S, hasText)})`, S)})
-             SELECT s.*, g.dup_group FROM cohort_rows s LEFT JOIN g ON ${dupJoin(S, "s")}`);
+             SELECT s.*, g.dup_group, g.dup_group IS NOT NULL AS dup_extra FROM cohort_rows s LEFT JOIN g ON ${dupJoin(S, "s")}`);
     await q("DROP TABLE IF EXISTS cohort_rows");
   }
   const terms = [["device_problem_codes", "device", "device_problem_terms"], ["patient_problem_codes", "patient", "patient_problem_terms"]]
     .filter(([col]) => R.has(col))
     .map(([col, type, name]) => `(SELECT string_agg(TERM, '; ' ORDER BY CODE) FROM dict WHERE CODE_TYPE = '${type}' AND list_contains(s.${col}, CODE)) AS ${name}`);
   const cl = withCls ? ", c.device_name, c.device_class, c.implant, c.life_sustaining, c.specialty" : "";
-  return q(`SELECT ${outCols(S).map(x => x.includes(" AS ") ? x.replace(/^(CAST\(|array_to_string\()?(\w+)/, (m, f, n) => (f || "") + "s." + n) : "s." + x).join(", ")},
-            s.dup_group::INTEGER AS dup_group${terms.length ? ", " + terms.join(", ") : ""}${cl}
+  return q(`SELECT ${outCols(S.filter(([n]) => n !== "dup_group" && n !== "dup_extra")).map(x => x.includes(" AS ") ? x.replace(/^(CAST\(|array_to_string\()?(\w+)/, (m, f, n) => (f || "") + "s." + n) : "s." + x).join(", ")},
+            s.dup_group::DOUBLE AS dup_group, coalesce(s.dup_extra, false) AS dup_extra${terms.length ? ", " + terms.join(", ") : ""}${cl}
             FROM cohort_sel s ${withCls ? "LEFT JOIN cls c ON c.product_code = s.product_code" : ""} ORDER BY ${order.split(", ").map(o => "s." + o).join(", ")}`);
 }
 
@@ -2007,7 +2186,9 @@ async function profileFacts(q, c, S, hasText) {
         (SELECT list(CODE) FROM dict WHERE CODE_TYPE = 'device' AND STATUS IN ('archived_evs', 'archived_fda'))))::DOUBLE AS retired_codes,
       CAST(min(date_received) AS VARCHAR) AS first, CAST(max(date_received) AS VARCHAR) AS last
     FROM y`);
-  return { ...r, dup_reports: (await dupCounts(q, c, S, hasText)).dup_reports };
+  // version 1.0: counted without the filter "leave out possible duplicates", so that the number left out can be shown
+  const dc = await dupCounts(q, { ...c, table: null, noDup: false }, S, hasText);
+  return { ...r, dup_reports: dc.dup_reports, dup_extra: dc.dup_extra };
 }
 
 async function outcomeCounts(q, c, S, hasText) {
@@ -2076,11 +2257,18 @@ async function deviceAge(q, c, S, hasText) {
   return { total: tot.n, manufacture: { bins: bins(m), ...mi[0] }, implant: { bins: bins(i), ...ii[0] } };
 }
 
+/* Version 1.0 (comment 6 of the review of 2026-10-16): the reporter occupation codes of the FDA MDR data files (field
+   "Reporter Occupation Code (E3)", 46 codes, and "*" for invalid data; https://www.fda.gov/medical-devices/medical-device-reporting-mdr-how-report-medical-device-problems/mdr-data-files,
+   read 2026-10-16). The field holds codes or words; occupationSql gives the words for both, so "001" and "PHYSICIAN" count together. */
+const OCCUPATIONS = [["000", "OTHER"], ["001", "PHYSICIAN"], ["002", "NURSE"], ["003", "NON-HEALTHCARE PROFESSIONAL"], ["0HP", "HEALTH PROFESSIONAL"], ["0LP", "LAY USER/PATIENT"], ["100", "OTHER HEALTHCARE PROFESSIONAL"], ["101", "AUDIOLOGIST"], ["102", "DENTAL HYGIENIST"], ["103", "DIETICIAN"], ["104", "EMERGENCY MEDICAL TECHNICIAN"], ["105", "MEDICAL TECHNOLOGIST"], ["106", "NUCLEAR MEDICINE TECHNOLOGIST"], ["107", "OCCUPATIONAL THERAPIST"], ["108", "PARAMEDIC"], ["109", "PHARMACIST"], ["110", "PHLEBOTOMIST"], ["111", "PHYSICAL THERAPIST"], ["112", "PHYSICIAN ASSISTANT"], ["113", "RADIOLOGIC TECHNOLOGIST"], ["114", "RESPIRATORY THERAPIST"], ["115", "SPEECH THERAPIST"], ["116", "DENTIST"], ["117", "NURSE PRACTITIONER"], ["300", "OTHER CAREGIVERS"], ["301", "DENTAL ASSISTANT"], ["302", "HOME HEALTH AIDE"], ["303", "MEDICAL ASSISTANT"], ["304", "NURSING ASSISTANT"], ["305", "PATIENT"], ["306", "PATIENT FAMILY MEMBER OR FRIEND"], ["307", "PERSONAL CARE ASSISTANT"], ["400", "SERVICE AND TESTING PERSONNEL"], ["401", "BIOMEDICAL ENGINEER"], ["402", "HOSPITAL SERVICE TECHNICIAN"], ["403", "MEDICAL EQUIPMENT COMPANY TECHNICIAN/REPRESENTATIVE"], ["404", "PHYSICIST"], ["405", "SERVICE PERSONNEL"], ["499", "DEVICE UNATTENDED"], ["500", "RISK MANAGER"], ["501", "ADMINISTRATOR/SUPERVISOR"], ["600", "ATTORNEY"], ["999", "UNKNOWN"], ["NA", "NOT APPLICABLE"], ["NI", "NO INFORMATION"], ["UNK", "UNKNOWN"]];
+// version 1.0 (diagnose_v10.py section D): codes of 1 or 2 digits ("1", "2", "0": 3,336 real reports) are the codes 001, 002, 000
+const occupationSql = col => `CASE CASE WHEN regexp_full_match(trim(coalesce(${col}, '')), '[0-9]{1,2}') THEN lpad(trim(${col}), 3, '0') ELSE upper(trim(${col})) END
+    ${OCCUPATIONS.map(([c, t]) => `WHEN '${c}' THEN '${t}'`).join(" ")} WHEN '*' THEN 'INVALID DATA' ELSE nullif(upper(trim(${col})), '') END`;
 async function reporterTable(q, c, S, hasText) {
   const cte = `WITH ${cohortCte(c, S, hasText, false)}`;
   const [source, occupation, hp] = await Promise.all([
     q(`${cte} SELECT coalesce(report_source, '') AS v, count(*)::DOUBLE AS n FROM y GROUP BY 1 ORDER BY n DESC`),
-    q(`${cte} SELECT coalesce(nullif(upper(trim(reporter_occupation)), ''), 'NOT GIVEN') AS v, count(*)::DOUBLE AS n FROM y GROUP BY 1 ORDER BY n DESC, v`),
+    q(`${cte} SELECT coalesce(${occupationSql("reporter_occupation")}, 'NOT GIVEN') AS v, count(*)::DOUBLE AS n FROM y GROUP BY 1 ORDER BY n DESC, v`),
     q(`${cte} SELECT coalesce(nullif(health_professional, ''), '') AS v, count(*)::DOUBLE AS n FROM y GROUP BY 1 ORDER BY n DESC`)]);
   return { source, occupation, hp };
 }
@@ -2094,6 +2282,28 @@ async function geography(q, c, S, hasText) {
   return { countries, states };
 }
 
+/* Version 1.0 (comment 2 of the review of 2026-10-16): brands and model numbers of a selection, so that a cohort can be defined
+   by model number and the user sees where "brand contains" selects more than one brand: the 30 most frequent (brand, model)
+   pairs, the 30 brands with the most reports with their number of models, and the pairs of brand names where one is inside
+   the other (among the BM_TOP brands with the most reports). Brands and models upper case and trimmed; the report table
+   joins the brands (models) of a report with two devices of the product code with "; ". */
+const BM_TOP = 300;
+async function brandModels(q, c, S, hasText) {
+  const R = new Set(S.map(x => x[0])), hasModel = R.has("model");
+  const cte = cohortCte({ ...c, table: null }, S, hasText, false);  // the report table: the selection in memory has no brand and model
+  const b = "coalesce(nullif(upper(trim(brand)), ''), '(no brand)')";
+  const m = hasModel ? "coalesce(nullif(upper(trim(model)), ''), '(no model number)')" : "'(no model column)'";
+  // output names other than the columns brand and model: DuckDB-WASM 1.32 refuses an output name that is also a column name
+  // in an expression of GROUP BY (measured 2026-10-16; DuckDB 1.4 accepts it)
+  const pairs = (await q(`WITH ${cte} SELECT ${b} AS b_, ${m} AS m_, count(*)::DOUBLE AS n FROM y GROUP BY b_, m_ ORDER BY n DESC, b_, m_ LIMIT 30`))
+    .map(r => ({ brand: r.b_, model: r.m_, n: r.n }));
+  const brands = (await q(`WITH ${cte} SELECT ${b} AS b_, count(*)::DOUBLE AS n, count(DISTINCT ${m})::DOUBLE AS models FROM y GROUP BY b_ ORDER BY n DESC, b_`))
+    .map(r => ({ brand: r.b_, n: r.n, models: r.models }));
+  const named = brands.filter(r => r.brand !== "(no brand)").slice(0, BM_TOP), inside = [];
+  for (const a of named) for (const x of named) if (a !== x && x.brand.includes(a.brand)) inside.push({ brand: a.brand, n: a.n, in: x.brand, nIn: x.n });
+  inside.sort((u, v) => (v.n + v.nIn) - (u.n + u.nIn) || (u.brand < v.brand ? -1 : u.brand > v.brand ? 1 : u.in < v.in ? -1 : 1));
+  return { pairs, brands: brands.slice(0, 30), nBrands: brands.length, inside, hasModel, total: brands.reduce((t, r) => t + r.n, 0) };
+}
 async function manufacturerMix(q, c, S, hasText) {
   const rows = await q(`WITH ${cohortCte(c, S, hasText, false)} SELECT coalesce(manufacturer_group, '') AS name, count(*)::DOUBLE AS n
     FROM y GROUP BY 1 ORDER BY n DESC, name`);
@@ -2103,7 +2313,7 @@ async function manufacturerMix(q, c, S, hasText) {
 
 /* Reports per year received (x: reports that meet condSql), with every year of the range (0 if none). */
 async function yearlySeries(q, c, S, hasText, y0, y1, condSql = "false") {
-  const rows = await q(`WITH ${cohortCte(c, S, hasText, /\bdup_group\b/.test(condSql))} SELECT year::INTEGER AS y, count(*)::DOUBLE AS n,
+  const rows = await q(`WITH ${cohortCte(c, S, hasText, /\bdup_(group|extra)\b/.test(condSql))} SELECT year::INTEGER AS y, count(*)::DOUBLE AS n,
       count(*) FILTER (WHERE ${condSql})::DOUBLE AS x, count(*) FILTER (WHERE has_patient)::DOUBLE AS n_patient
     FROM y WHERE year IS NOT NULL GROUP BY 1 ORDER BY 1`);
   const by = new Map(rows.map(r => [r.y, r]));
@@ -2128,19 +2338,35 @@ const SCENARIOS = [
   ["main", "Main analysis (as selected)", "true"],
   ["initial", "Initial reports only", "contains(coalesce(type_of_report, ''), 'I')"],
   ["nosummary", "Summary reports left out", "coalesce(summary_report, '') <> 'Y'"],
-  ["nodup", "Possible duplicates left out", "dup_group IS NULL"],
+  ["nodup", "Possible duplicates left out", "NOT coalesce(dup_extra, false)"],
   ["mfr", "Manufacturer reports only", "report_source = 'M'"],
   ["other", "User facility, distributor and voluntary reports only", "report_source IN ('U', 'D', 'P')"],
   ["eventdate", "Reports with a date of event", "date_of_event IS NOT NULL"],
   ["y2010", "Received 2010 or later", "year >= 2010"],
 ];
+/* Version 1.0 (point 1): the scenarios of a selection. With the data of version 1.0 the possible duplicates are the
+   reports after the first of their group (dup_extra). When the main analysis leaves them out (c.noDup), the scenario nodup
+   puts them back ("Possible duplicates included") and every other scenario keeps them out; all scenarios are then counted on
+   the selection with the duplicates ({ ...c, noDup: false }). Data before 1.0: every report of a group of the old key. */
+function scenarioList(c, S) {
+  const R = new Set(S.map(x => x[0])), off = Boolean(c.noDup && R.has("dup_extra")), base = "NOT coalesce(dup_extra, false)";
+  return SCENARIOS.map(([id, label, cond]) => (id === "nodup"
+    ? (off ? [id, "Possible duplicates included", "true"] : [id, R.has("dup_extra") ? `${label} (the first report of each group kept)` : label, cond])
+    : [id, label, off ? (cond === "true" ? base : `(${cond}) AND ${base}`) : cond]));
+}
+/* The selection on which the scenarios are counted: with the duplicates left out, the same selection with them, read from the
+   report table (a selection in memory, c.table, was made without them). */
+function scenarioCohort(c, S) {
+  return c.noDup && S.some(x => x[0] === "dup_extra") ? { ...c, noDup: false, table: null } : c;
+}
 async function sensitivityTable(q, c, S, hasText) {
-  const parts = SCENARIOS.map(([id, , cond]) => `count(*) FILTER (WHERE ${cond})::DOUBLE AS n_${id},
+  const list = scenarioList(c, S), c0 = scenarioCohort(c, S);
+  const parts = list.map(([id, , cond]) => `count(*) FILTER (WHERE ${cond})::DOUBLE AS n_${id},
       count(*) FILTER (WHERE (${cond}) AND event = 'D')::DOUBLE AS d_${id},
       count(*) FILTER (WHERE (${cond}) AND has_patient)::DOUBLE AS p_${id},
       count(*) FILTER (WHERE (${cond}) AND ${SERIOUS_SQL})::DOUBLE AS s_${id}`).join(",\n");
-  const [r] = await q(`WITH ${cohortCte(c, S, hasText)} SELECT ${parts} FROM y`);
-  return SCENARIOS.map(([id, label]) => ({ id, label, n: r[`n_${id}`], deaths: r[`d_${id}`], nPatient: r[`p_${id}`], serious: r[`s_${id}`] }));
+  const [r] = await q(`WITH ${cohortCte(c0, S, hasText)} SELECT ${parts} FROM y`);
+  return list.map(([id, label]) => ({ id, label, n: r[`n_${id}`], deaths: r[`d_${id}`], nPatient: r[`p_${id}`], serious: r[`s_${id}`] }));
 }
 
 /* Word and phrase counts in the narratives of a reproducible sample of the selection (the reports with the smallest
@@ -2306,7 +2532,7 @@ function toCsv(rows, cols) {
   return [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(c.get(r))).join(","))].join("\n");
 }
 /* ================================================================== version 0.6: page analyses, charts and exports */
-const APP_VERSION = "0.9.1";
+const APP_VERSION = "1.0.0";
 const NF = new Intl.NumberFormat("en-US");
 const fmt = (v, d = 2) => !Number.isFinite(v) ? "–" : (Math.abs(v) >= 1000 ? NF.format(Math.round(v)) : v.toFixed(d));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -2333,7 +2559,7 @@ function senLine(values) {
 }
 
 /* Count-table filters for a sensitivity scenario of SCENARIOS; null if the count tables cannot express the scenario
-   (possible duplicates, date of event). */
+   (date of event; possible duplicates in data before version 1.0, which have no count-table dimension dup). */
 function scenarioFilter(f, id) {
   const src = (f.src || SOURCE_IDS).filter(x => SOURCE_IDS.includes(x));
   if (id === "main") return { ...f };
@@ -2342,6 +2568,8 @@ function scenarioFilter(f, id) {
   if (id === "mfr") return { ...f, src: src.filter(x => x === "M") };
   if (id === "other") return { ...f, src: src.filter(x => x !== "M") };
   if (id === "y2010") return { ...f, y0: Math.max(f.y0, 2010) };
+  // version 1.0: the data have the count-table dimension dup (f.hasDup): the scenario turns the main choice around
+  if (id === "nodup" && f.hasDup) return { ...f, noDup: !f.noDup };
   return null;
 }
 
@@ -2349,14 +2577,14 @@ function scenarioFilter(f, id) {
    selection (signalTableSel, for example one brand), else of the product code (signalTable). The top signal is the
    first signal of the main analysis in the order of the evidence (byEvidence). */
 async function sensitivitySignals(q, c, S, hasText, f, pc, kind, crit, sel, prior = null, g = null) {
-  const cond = Object.fromEntries(SCENARIOS.map(([id, , s]) => [id, s]));
+  const cond = Object.fromEntries(scenarioList(c, S).map(([id, , s]) => [id, s])), c0 = scenarioCohort(c, S);
   const runs = [];
   for (const [id] of SCENARIOS) {
     const f2 = scenarioFilter(f, id);
     if (!f2) { runs.push({ id, available: false }); continue; }
     // the scenarios use the prior of the main analysis (an approximation for each scenario)
     const pr = prior && id !== "main" ? { ...prior, exact: false } : prior;
-    const res = sel ? await signalTableSel(q, c, S, hasText, f2, kind, cond[id], pr, g) : await signalTable(q, f2, pc, kind, pr, g);
+    const res = sel ? await signalTableSel(q, c0, S, hasText, f2, kind, cond[id], pr, g) : await signalTable(q, f2, pc, kind, pr, g);
     const ranked = rankedSignals(res.rows, crit);
     runs.push({ id, available: true, m: res.m, nSignals: ranked.length, top3: ranked.slice(0, 3).map(x => x.code), rows: res.rows });
   }
@@ -2392,7 +2620,10 @@ function compareRows(A, B, codes = [], terms = new Map()) {
   return defs.map(([label, x, n]) => ({
     label, base: n === "n" ? "all reports" : "reports with a patient record", xa: A[x] || 0, na: A[n] || 0, xb: B[x] || 0, nb: B[n] || 0,
     a: wilson(A[x] || 0, A[n] || 0), b: wilson(B[x] || 0, B[n] || 0),
-    cmp: A[n] && B[n] ? compareTwo(A[x] || 0, A[n], B[x] || 0, B[n]) : null }));
+    cmp: A[n] && B[n] ? compareTwo(A[x] || 0, A[n], B[x] || 0, B[n]) : null,
+    // version 1.0 (review of 2026-10-16): the odds of the measure in A against B (2x2: A with, A without, B with, B without;
+    // 0.5 in each cell if a cell is 0), as the ROR of the signal tables
+    or: A[n] && B[n] ? disp(A[x] || 0, A[n], (A[x] || 0) + (B[x] || 0), A[n] + B[n]) : null }));
 }
 
 /* ---- The selection as a table in memory (fewer columns than the report table), made once per selection */
@@ -2404,7 +2635,7 @@ function selTableSql(name, c, S, hasText) {
   if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error("table name");
   const R = new Set(S.map(x => x[0]));
   return `CREATE OR REPLACE TEMP TABLE ${name} AS WITH ${cohortCte({ ...c, table: null }, S, hasText)}
-    SELECT ${SEL_COLUMNS.filter(x => R.has(x)).join(", ")}, dup_group FROM y`;
+    SELECT ${SEL_COLUMNS.filter(x => R.has(x)).join(", ")}, dup_group, dup_extra FROM y`;
 }
 
 /* ---- Charts. Each function returns SVG text drawn at the width o.w of its box. The page and the figure export use the
@@ -2837,41 +3068,82 @@ function pngSetDpi(png, dpi) {
 /* ---- Methods text (READUS-PV, Fusaroli et al., Drug Saf 2024;47:575-584) and the checklist. s: the analysis (see the
    page: methodsSpec). Text in brackets is for the author to complete. */
 const listText = a => a.length <= 1 ? (a[0] || "") : `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}`;
+/* The rule of the possible duplicates in words (one place: the Methods text, the definitions and the notes use it). */
+const DUP_RULE_TEXT = "the same product code, date of event, manufacturer and brand";
+/* Version 1.0 (point 1): the rule of the pipeline (duplicate_groups; manifest.duplicates). */
+const DUP_RULE_V10 = "the same product code, date of event, manufacturer and brand, the same patient age and sex or different report sources, "
+  + "and narratives with a word overlap (Jaccard index of the word sets) of 0.8 or more";
+function dupSentence(s) {  // s.dupNew: data of version 1.0; s.noDup: the reports after the first of their group are left out
+  return s.dupNew ? `Possible duplicate reports were reports with ${DUP_RULE_V10}; `
+      + (s.noDup ? "the reports after the first report of each group were left out of all analyses." : "they were flagged, not removed.")
+    : `Possible duplicate reports had ${DUP_RULE_TEXT}; they were flagged, not removed.`;
+}
+/* Version 1.0 (review of 2026-10-16): the limitations of this selection that the page can measure. s.dq: { n, dup, nPatient,
+   sexNA, retired, summary, top: { name, share }, hhi } (methodsSpec); "" without them. */
+function selectionLimits(s) {
+  const d = s.dq; if (!d || !d.n) return "";
+  const p = (x, n) => pctTxt(n ? x / n : null);
+  const out = [s.dupNew
+    ? `${NF.format(d.dupExtra)} reports repeated an earlier report of the selection (possible duplicates after the first report of their group: ${DUP_RULE_V10}); `
+      + (s.noDup ? `they were left out of all analyses (${NF.format(d.n)} reports remained).` : `they were flagged, not removed (${p(d.dupExtra, d.n)} of the ${NF.format(d.n)} reports).`)
+    : `In this selection, ${NF.format(d.dup)} of the ${NF.format(d.n)} reports (${p(d.dup, d.n)}) were possible duplicates (${DUP_RULE_TEXT}); `
+      + "they were flagged, not removed, and the signal analysis used all reports."];
+  if (d.nPatient) out.push(`Patient sex was not given in ${p(d.sexNA, d.nPatient)} of the reports with a patient record.`);
+  if (d.retired) out.push(`${p(d.retired, d.n)} of the reports had a device problem code that the FDA has retired, so the codes changed during the period.`);
+  if (d.summary) out.push(`${p(d.summary, d.n)} of the reports were summary reports.`);
+  if (d.top && Number.isFinite(d.hhi)) out.push(`The largest manufacturer group (${d.top.name}) had ${pctTxt(d.top.share)} of the reports `
+    + `(Herfindahl-Hirschman index ${NF.format(Math.round(d.hhi))}), so the results mainly describe the reporting of ${d.hhi > 1800 ? "few manufacturers" : "the larger manufacturers"}.`);
+  return out.join(" ");
+}
 function methodsText(kind, s) {
   const intro = `We used the U.S. Food and Drug Administration (FDA) Manufacturer and User Facility Device Experience (MAUDE) database, `
     + `analysed with the MAUDE Signal Explorer (version ${s.version}; data version ${s.dataTag}, reports received by the FDA up to ${longDate(s.dataThrough)}, `
     + `built on ${longDate(s.built)}). The tool reads the public MAUDE download files, keeps one record per MDR report key, checks the data `
-    + `(dates, codes and duplicate records) and maps current and retired problem codes to their terms. Counts are numbers of distinct reports.`;
+    + `(dates, codes and repeated records of the same report key) and maps current and retired problem codes to their terms. Counts are numbers of distinct reports.`;
   const limits = "Analyses of spontaneous reports generate hypotheses. They cannot show that a device caused an event and cannot give "
     + "incidence, and they are affected by under-reporting, stimulated reporting (for example after recalls, safety communications or "
-    + "litigation), duplicate reports, summary reporting programs and changes of the problem codes over time. [Add the limitations that "
-    + "are specific to your device.]";
+    + "litigation), duplicate reports, summary reporting programs and changes of the problem codes over time. "
+    + (selectionLimits(s) ? selectionLimits(s) + " [Add other limitations that are specific to your device.]" : "[Add the limitations that are specific to your device.]");
   if (kind === "timely") {
     return [s.timelyText || "[Run the reporting timeliness analysis first.]", limits];
   }
   const bg = s.bg && BACKGROUNDS.find(x => x.id === s.bg.id && x.id !== "all");  // version 0.9: the comparison background
-  const sel = `We selected the reports received from ${s.y0} to ${s.y1} for product code ${s.pc} (${s.name})${s.brand ? ` whose brand name contains "${s.brand}"` : ""}, `
+  const dv = devFilterText(s);
+  const sel = `We selected the reports received from ${s.y0} to ${s.y1} for product code ${s.pc} (${s.name})${dv ? ` with the device filter: ${dv}` : ""}, `
     + `${s.allEvents ? "of all event types" : `with the event types ${listText(s.events)}`}${s.filters.length ? `; ${listText(s.filters)}` : ""} (${NF.format(s.n)} reports). The unit of analysis was the report.`;
   if (kind === "signals") {
     const scen = s.scenarios.length ? ` Sensitivity analyses repeated the analysis ${listText(s.scenarios)}.` : "";
+    // version 1.0 (point 3): the unit (problem codes, IMDRF groups or clinical concepts); (point 4) the administrative codes
+    const u = s.unit || UNITS[0], unitText = u.id === "imdrf"
+      ? `For each group of ${s.kindType} problem codes with the same level-2 code of the IMDRF terminology (a code without an IMDRF code took the code of a code with the same term, `
+        + `or of a reviewed crosswalk table, else it formed a group alone; a report counted once per group)`
+      : u.id === "clinical" ? `For each pre-specified clinical concept (a group of ${s.kindType} problem codes across the IMDRF hierarchy, listed in the supplement; a report counted once per concept)`
+      : `For each ${s.kindType} problem code`;
+    const admin = s.inclAdmin ? " Administrative codes (no problem, no information or no code, planned actions, codes entered in the other field) were included."
+      : s.nAdmin ? ` Administrative codes (no problem, no information or no code, planned actions, codes entered in the other field; ${NF.format(s.nAdmin)} in this table) were left out of the table and of the multiple-testing correction.` : "";
     return [intro,
-      `${sel} For each ${s.kindType} problem code, a 2×2 table compared ${s.brand ? "these reports" : `product code ${s.pc}`} with `
-        + (bg ? `the other product codes of ${bg.short} in the FDA product classification (${s.bg.label}; ${NF.format(s.bg.n_codes)} product codes with reports), `
+      `${sel} ${unitText}, a 2×2 table compared ${dv ? "these reports" : `product code ${s.pc}`} with `
+        + (bg && bg.id === "custom" ? `the other product codes of a group chosen by the analysts (${s.bg.label}), `
+              + `among the ${NF.format(s.N)} reports of these product codes with at least one ${s.kindType} problem code (${NF.format(s.nP)} of them in the selection).`
+          : bg ? `the other product codes of ${bg.short} in the FDA product classification (${s.bg.label}; ${NF.format(s.bg.n_codes)} product codes with reports), `
               + `among the ${NF.format(s.N)} reports of these product codes with at least one ${s.kindType} problem code (${NF.format(s.nP)} of them in the selection).`
             : `all other product codes, among the ${NF.format(s.N)} reports with at least one ${s.kindType} problem code (${NF.format(s.nP)} of them in the selection).`),
       `We calculated the reporting odds ratio (ROR) with its 95% confidence interval (log method), the proportional reporting ratio (PRR) `
         + `with the Yates chi-square, the information component (IC) with its lower credibility limit IC025, and the one-sided Fisher exact `
         + `test (more reports than expected). If a cell of the table was 0, the ROR and PRR used a continuity correction of 0.5 in each cell. `
-        + `P-values were corrected for multiple testing with the Benjamini-Hochberg procedure over the ${NF.format(s.m)} ${s.kindType} problem codes `
-        + `with at least one report.${s.ebgm ? " " + ebgmMethods(s) : ""} A signal was defined as ${s.ruleText}.${scen} [Describe the case-by-case review of the narratives, if any.]`,
+        + `P-values were corrected for multiple testing with the Benjamini-Hochberg procedure over the ${NF.format(s.m)} ${u.id === "code" ? `${s.kindType} problem code` : u.noun}s `
+        + `with at least one report.${admin}${s.ebgm ? " " + ebgmMethods(s) : ""} The expected count was nP × nE / N, with the selection included in nE and N `
+        + `(the standard definition of the IC and the EBGM); so the ratio of observed to expected reports, and with it the IC and the EBGM, `
+        + `could not be larger than N / nP = ${fmt(oeLimit(s.nP, s.N), 2)} for any problem, while the ROR and the PRR compare with the other reports and have no such limit. `
+        + `A signal was defined as ${s.ruleText}.${scen} [Describe the case-by-case review of the narratives, if any.]`,
       limits];
   }
   return [intro, sel,
     "Patient outcomes came from the patient records of the reports (21 CFR 803); a report had an outcome if any of its patients had it. "
       + "A serious outcome was death, a life-threatening event, hospitalization, disability, a congenital anomaly or a required intervention. "
       + "Patient measures used the reports with a patient record; age and sex were those of the first patient. Device age was the date of "
-      + "the event minus the date of manufacture (0 to 50 years). Possible duplicate reports had the same product code, date of event, "
-      + "manufacturer and brand. Proportions are given with 95% Wilson score intervals. Groups were compared with the chi-square test, or "
+      + `the event minus the date of manufacture (0 to 50 years). ${dupSentence(s)} `
+      + "Proportions are given with 95% Wilson score intervals. Groups were compared with the chi-square test, or "
       + "with Fisher's exact test (two-sided) when an expected count was below 5; differences of two proportions have Newcombe hybrid score "
       + "intervals. Trends over complete years were tested with the Mann-Kendall test with the Sen slope (counts) and the Cochran-Armitage "
       + "test (proportions). The concentration of reports by manufacturer group was measured with the Herfindahl-Hirschman index. "
@@ -2907,7 +3179,7 @@ const READUS_PV = [
 /* Plain-language summary of a selection for the Overview tab (HTML). s: { y0, y1, n, pc, brand, deaths, serious, nPatient,
    signals: [terms], nSignals, kindType, hasV06 } */
 function inShortHtml(s) {
-  const p = [`From ${s.y0} to ${s.y1}, <strong>${NF.format(s.n)} reports</strong> named ${s.brand ? `the brand “${esc(s.brand)}” (product code ${esc(s.pc)})` : "this device type"}.`
+  const p = [`From ${s.y0} to ${s.y1}, <strong>${NF.format(s.n)} reports</strong> named ${devFilterText(s) ? `product code ${esc(s.pc)} with the device filter ${esc(devFilterText(s))}` : "this device type"}.`
     + ` <strong>${NF.format(s.deaths)}</strong> report a death${s.hasV06 ? `, and <strong>${NF.format(s.serious)}</strong> report a serious patient outcome (death, life-threatening event, hospitalization, disability, congenital anomaly or required intervention)` : ""}.`];
   p.push(s.nSignals
     ? `<strong>${NF.format(s.nSignals)} ${s.kindType} problem${s.nSignals === 1 ? " is" : "s are"}</strong> reported more often than for ${esc(bgText(s.bg))} (${esc(s.ruleText)})${s.signals.length ? `: ${esc(listText(s.signals.map(t => t.toLowerCase())))}` : ""}${s.nSignals > s.signals.length ? ", and others" : ""}.`
@@ -2916,10 +3188,31 @@ function inShortHtml(s) {
   return p.map(x => `<p>${x}</p>`).join("");
 }
 
-/* Name of a country from its two-letter code (the browser's list of names); the code if there is no name. */
+/* Name of a country from its two-letter code; the code if there is no name.
+   Version 1.0 (review of 2026-10-16, point 6; diagnose_v10.py section B): the reporter country field holds FIPS 10-4 codes
+   (the codes of the CIA World Factbook) in every period; ISO 3166 codes appear only from 2019 (DE: 0 reports to 2009, 71 in
+   2010-2018, 108,465 from 2019; JP, IE, TR, RU, AT and IL the same), and even then FIPS is used 5 to 40 times more (GM 663,789
+   and DE 108,465 from 2019). Version 0.6 to 0.9 used the ISO names of the browser (AS American Samoa instead of Australia, GM
+   Gambia instead of Germany). So: the FIPS 10-4 name; the ISO name for a code that only ISO has; for a code with two meanings,
+   a decision from the numbers: ISO for GB, ES, CN, SE, KR and SG (the FIPS countries Gabon, El Salvador, Comoros, Seychelles,
+   Kiribati and Senegal cannot give these numbers), FIPS for CH, GM, AS, RS, IS, CI, SN and SZ; AU is Austria (FIPS) up to 2018
+   and a mix with Australia (ISO) from 2019, so "Austria or Australia"; TC is the FIPS code of the United Arab Emirates before
+   1998 (FIPS PUB 10-4, change 1), not Turks and Caicos; every other code with two meanings shows both. Source of the names:
+   country_codes_fips_iso.csv (github.com/datasets/country-codes, CIA World Factbook Appendix D). */
+const COUNTRY_NAMES = new Map("AA:Aruba|AC:Antigua & Barbuda|AD:Andorra|AE:United Arab Emirates|AF:Afghanistan|AG:Algeria (or Antigua & Barbuda)|AI:Anguilla|AJ:Azerbaijan|AL:Albania|AM:Armenia|AN:Andorra|AO:Angola|AQ:American Samoa (or Antarctica)|AR:Argentina|AS:Australia|AT:Austria|AU:Austria or Australia|AV:Anguilla|AW:Aruba|AX:Åland Islands|AY:Antarctica|AZ:Azerbaijan|BA:Bahrain (or Bosnia)|BB:Barbados|BC:Botswana|BD:Bermuda (or Bangladesh)|BE:Belgium|BF:Bahamas (or Burkina Faso)|BG:Bangladesh (or Bulgaria)|BH:Belize (or Bahrain)|BI:Burundi|BJ:Benin|BK:Bosnia|BL:Bolivia (or St. Barthélemy)|BM:Myanmar (or Bermuda)|BN:Benin (or Brunei)|BO:Belarus (or Bolivia)|BP:Solomon Islands|BQ:Caribbean Netherlands|BR:Brazil|BS:Bahamas|BT:Bhutan|BU:Bulgaria|BV:Bouvet Island|BW:Botswana|BX:Brunei|BY:Burundi (or Belarus)|BZ:Belize|CA:Canada|CB:Cambodia|CC:Cocos Islands|CD:Chad (or Congo - Kinshasa)|CE:Sri Lanka|CF:Congo - Brazzaville (or Central African Republic)|CG:Congo - Kinshasa (or Congo - Brazzaville)|CH:China|CI:Chile|CJ:Cayman Islands|CK:Cocos Islands (or Cook Islands)|CL:Chile|CM:Cameroon|CN:China|CO:Colombia|CQ:Northern Mariana Islands|CR:Costa Rica|CS:Costa Rica|CT:Central African Republic|CU:Cuba|CV:Cape Verde|CW:Cook Islands (or Curaçao)|CX:Christmas Island|CY:Cyprus|CZ:Czechia|DA:Denmark|DE:Germany|DJ:Djibouti|DK:Denmark|DM:Dominica|DO:Dominica (or Dominican Republic)|DR:Dominican Republic|DZ:Algeria|EC:Ecuador|EE:Estonia|EG:Egypt|EH:Western Sahara|EI:Ireland|EK:Equatorial Guinea|EN:Estonia|ER:Eritrea|ES:Spain|ET:Ethiopia|EZ:Czechia|FG:French Guiana|FI:Finland|FJ:Fiji|FK:Falkland Islands|FM:Micronesia|FO:Faroe Islands|FP:French Polynesia|FR:France|FS:French Southern Territories|GA:Gambia (or Gabon)|GB:United Kingdom|GD:Grenada|GE:Georgia|GF:French Guiana|GG:Georgia (or Guernsey)|GH:Ghana|GI:Gibraltar|GJ:Grenada|GK:Guernsey|GL:Greenland|GM:Germany|GN:Guinea|GP:Guadeloupe|GQ:Guam (or Equatorial Guinea)|GR:Greece|GS:South Georgia & South Sandwich Islands|GT:Guatemala|GU:Guam|GV:Guinea|GW:Guinea-Bissau|GY:Guyana|HA:Haiti|HK:Hong Kong|HM:Heard & McDonald Islands|HN:Honduras|HO:Honduras|HR:Croatia|HT:Haiti|HU:Hungary|IC:Iceland|ID:Indonesia|IE:Ireland|IL:Israel|IM:Isle of Man|IN:India|IO:British Indian Ocean Territory|IQ:Iraq|IR:Iran|IS:Israel|IT:Italy|IV:Côte d’Ivoire|IZ:Iraq|JA:Japan|JE:Jersey|JM:Jamaica|JO:Jordan|JP:Japan|KE:Kenya|KG:Kyrgyzstan|KH:Cambodia|KI:Kiribati|KM:Comoros|KN:North Korea (or St. Kitts & Nevis)|KP:North Korea|KR:South Korea|KS:South Korea|KT:Christmas Island|KU:Kuwait|KW:Kuwait|KY:Cayman Islands|KZ:Kazakhstan|LA:Laos|LB:Lebanon|LC:St. Lucia|LE:Lebanon|LG:Latvia|LH:Lithuania|LI:Liberia (or Liechtenstein)|LK:Sri Lanka|LO:Slovakia|LR:Liberia|LS:Liechtenstein (or Lesotho)|LT:Lesotho (or Lithuania)|LU:Luxembourg|LV:Latvia|LY:Libya|MA:Madagascar (or Morocco)|MB:Martinique|MC:Macao (or Monaco)|MD:Moldova|ME:Montenegro|MF:Mayotte (or St. Martin)|MG:Mongolia (or Madagascar)|MH:Montserrat (or Marshall Islands)|MI:Malawi|MJ:Montenegro|MK:North Macedonia|ML:Mali|MM:Myanmar|MN:Monaco (or Mongolia)|MO:Morocco (or Macao)|MP:Mauritius (or Northern Mariana Islands)|MQ:Martinique|MR:Mauritania|MS:Montserrat|MT:Malta|MU:Oman (or Mauritius)|MV:Maldives|MW:Malawi|MX:Mexico|MY:Malaysia|MZ:Mozambique|NA:Namibia|NC:New Caledonia|NE:Niue (or Niger)|NF:Norfolk Island|NG:Niger (or Nigeria)|NH:Vanuatu|NI:Nigeria (or Nicaragua)|NL:Netherlands|NN:Sint Maarten|NO:Norway|NP:Nepal|NR:Nauru|NS:Suriname|NU:Nicaragua (or Niue)|NZ:New Zealand|OD:South Sudan|OM:Oman|PA:Paraguay (or Panama)|PC:Pitcairn|PE:Peru|PF:French Polynesia|PG:Papua New Guinea|PH:Philippines|PK:Pakistan|PL:Poland|PM:Panama (or St. Pierre & Miquelon)|PN:Pitcairn|PO:Portugal|PP:Papua New Guinea|PR:Puerto Rico|PS:Palau (or Palestine)|PT:Portugal|PU:Guinea-Bissau|PW:Palau|PY:Paraguay|QA:Qatar|RE:Réunion|RM:Marshall Islands|RN:St. Martin|RO:Romania|RP:Philippines|RQ:Puerto Rico|RS:Russia|RU:Russia|RW:Rwanda|SA:Saudi Arabia|SB:St. Pierre & Miquelon (or Solomon Islands)|SC:St. Kitts & Nevis (or Seychelles)|SD:Sudan|SE:Sweden|SF:South Africa|SG:Singapore|SH:St. Helena|SI:Slovenia|SJ:Svalbard & Jan Mayen|SK:Slovakia|SL:Sierra Leone|SM:San Marino|SN:Singapore|SO:Somalia|SP:Spain|SR:Suriname|SS:South Sudan|ST:St. Lucia (or São Tomé & Príncipe)|SU:Sudan|SV:Svalbard (or El Salvador)|SW:Sweden|SX:South Georgia & South Sandwich Islands (or Sint Maarten)|SY:Syria|SZ:Switzerland|TB:St. Barthélemy|TC:United Arab Emirates|TD:Trinidad & Tobago (or Chad)|TF:French Southern Territories|TG:Togo|TH:Thailand|TI:Tajikistan|TJ:Tajikistan|TK:Turks & Caicos Islands (or Tokelau)|TL:Tokelau (or Timor-Leste)|TM:Turkmenistan|TN:Tonga (or Tunisia)|TO:Togo (or Tonga)|TP:São Tomé & Príncipe|TR:Türkiye|TS:Tunisia|TT:Timor-Leste (or Trinidad & Tobago)|TU:Türkiye|TV:Tuvalu|TW:Taiwan|TX:Turkmenistan|TZ:Tanzania|UA:Ukraine|UC:Curaçao|UG:Uganda|UK:United Kingdom|UM:U.S. Outlying Islands|UP:Ukraine|US:United States|UV:Burkina Faso|UY:Uruguay|UZ:Uzbekistan|VA:Vatican City|VC:St. Vincent & Grenadines|VE:Venezuela|VG:British Virgin Islands|VI:British Virgin Islands (or U.S. Virgin Islands)|VM:Vietnam|VN:Vietnam|VQ:U.S. Virgin Islands|VT:Vatican City|VU:Vanuatu|WA:Namibia|WF:Wallis & Futuna|WI:Western Sahara|WS:Samoa|WZ:Eswatini|YE:Yemen|YM:Yemen|YT:Mayotte|ZA:Zambia (or South Africa)|ZI:Zimbabwe|ZM:Zambia|ZW:Zimbabwe".split("|").map(x => [x.slice(0, 2), x.slice(3)]));
 function countryName(code) {
   if (!/^[A-Z]{2}$/.test(code || "")) return code || "Not given";
-  try { return new Intl.DisplayNames(["en"], { type: "region" }).of(code) || code; } catch (e) { return code; }
+  return COUNTRY_NAMES.get(code) || code;
+}
+/* The countries of geography() added together by name (UK and GB are both the United Kingdom): [{ name, codes, n }]. */
+function countriesByName(rows) {
+  const by = new Map();
+  for (const r of rows) {
+    const name = r.code ? countryName(r.code) : "Not given", x = by.get(name) || { name, codes: [], n: 0 };
+    if (r.code) x.codes.push(r.code);
+    x.n += r.n; by.set(name, x);
+  }
+  return [...by.values()].sort((a, b) => b.n - a.n || (a.name < b.name ? -1 : 1));
 }
 
 /* Stored first view (version 0.7). For the default selection of each product code (all years of the data, all event
@@ -2931,8 +3224,9 @@ function countryName(code) {
    change of a definition makes the stored results old, and the page calculates as before). */
 const SUMMARY_FORMAT = 1;
 function defaultCohort(pc, y0, y1) {
+  // noDup (version 1.0): the default selection leaves the possible duplicates out (only data with the column dup_extra)
   return { pcs: [pc], y0, y1, d0: null, d1: null, ev: [...EVENT_IDS], src: [...SOURCE_IDS], initial: false, noSummary: false,
-           brand: "", mfr: "", dpc: null, ppc: null, incl: [], excl: [] };
+           noDup: true, brand: "", mfr: "", dpc: null, ppc: null, incl: [], excl: [] };
 }
 function isDefaultCohort(c, info, S, hasText) {  // the same WHERE text (event types and sources in a fixed order)
   if (!info || c.table || c.pcs.length !== 1 || !Number.isInteger(info.y0) || !Number.isInteger(info.y1)) return false;
@@ -2973,19 +3267,24 @@ const tabParam = params.get("tab");
 const state = {
   pc: safePc((params.get("pc") || "").toUpperCase()),
   brand: (params.get("brand") || "").trim().toUpperCase().slice(0, 80),
-  kind: params.get("kind") === "pp" ? "pp" : "dp",
+  brandNot: (params.get("brandnot") || "").trim().toUpperCase().slice(0, 80),  // version 1.0 (comment 2): brand does not contain
+  model: (params.get("model") || "").trim().toUpperCase().slice(0, 80),        // version 1.0 (comment 2): model number contains
+  kind: KIND[params.get("kind")] ? params.get("kind") : "dp",  // version 1.0: also the concept kinds (dpi, ppi, dpc, ppc)
+  noDup: params.get("dup") !== "1",       // version 1.0 (point 1): leave out the possible duplicates (data with the dimension dup)
+  inclAdmin: params.get("admin") === "1",  // version 1.0 (point 4): include the administrative codes in the signal tables
   y0: +params.get("y0") || 0, y1: +params.get("y1") || 0,
   ev: (params.get("ev") || EVENT_IDS.join(",")).split(",").filter(e => EVENT_IDS.includes(e)),
   src: (params.get("src") || SOURCE_IDS.join(",")).split(",").filter(x => SOURCE_IDS.includes(x)),
   initial: params.get("initial") === "1", noSummary: params.get("nosummary") === "1",
   crit: CRITERIA[params.get("crit")] ? params.get("crit") : "ror",
   bg: BACKGROUNDS.some(b => b.id === params.get("bg")) ? params.get("bg") : "all",  // version 0.9: the comparison background
+  bgCodes: (params.get("bgpc") || "").toUpperCase().replace(/[^A-Z0-9,]+/g, "").slice(0, 120),  // version 1.0: codes of the custom group
   sort: { key: "rorLo", dir: -1 }, filter: "", minA: 1, onlySig: false,
   result: null, selected: null, yMin: 1991, yMax: new Date().getFullYear(),
   tab: TABS.includes(tabParam) ? tabParam : params.get("view") === "reports" ? "reports"
      : (params.has("kind") || params.has("crit")) ? "signals" : "overview",
   page: params.get("page") === "timely" ? "timely" : "device",
-  cohort: null, dims: false, v06: false, key: 0, formKey: -1, cmpKey: -1,
+  cohort: null, dims: false, v06: false, dupDim: false, kinds: ["dp", "pp"], key: 0, formKey: -1, cmpKey: -1,
   ageMode: "manufacture", pok: "dp", mk: "signals", ngSize: 2, ngLast: null, cmpLast: null,
 };
 const live = key => key === state.key;
@@ -2999,24 +3298,35 @@ function saveUrl() {
   if (params.get("data")) p.set("data", params.get("data"));
   if (state.pc) p.set("pc", state.pc);
   if (state.brand) p.set("brand", state.brand);
+  if (state.brandNot) p.set("brandnot", state.brandNot);
+  if (state.model) p.set("model", state.model);
   if (state.y0 !== state.yMin) p.set("y0", state.y0);
   if (state.y1 !== state.yMax) p.set("y1", state.y1);
   if (state.ev.length !== EVENT_IDS.length) p.set("ev", state.ev.join(","));
   if (state.src.length !== SOURCE_IDS.length) p.set("src", state.src.join(","));
   if (state.initial) p.set("initial", "1");
   if (state.noSummary) p.set("nosummary", "1");
+  if (state.dupDim && !state.noDup) p.set("dup", "1");
+  if (state.inclAdmin) p.set("admin", "1");
   if (state.kind !== "dp") p.set("kind", state.kind);
   if (state.crit !== "ror") p.set("crit", state.crit);
   if (state.bg !== "all") p.set("bg", state.bg);
+  if (state.bg === "custom" && state.bgCodes) p.set("bgpc", state.bgCodes);
   if (state.tab !== "overview") p.set("tab", state.tab);
   if (state.page !== "device") p.set("page", state.page);
   history.replaceState(null, "", `${location.pathname}${p.toString() ? "?" + p : ""}`);
 }
 const filters = () => ({ y0: state.y0, y1: state.y1, ev: [...state.ev],
-  ...(state.dims ? { src: [...state.src], initial: state.initial, noSummary: state.noSummary } : {}) });
+  ...(state.dims ? { src: [...state.src], initial: state.initial, noSummary: state.noSummary } : {}),
+  ...(state.dupDim ? { hasDup: true, noDup: state.noDup } : {}), ...(state.inclAdmin ? { inclAdmin: true } : {}) });
 const cohortOf = () => ({ pcs: [state.pc], y0: state.y0, y1: state.y1, d0: null, d1: null, ev: [...state.ev],
   src: state.dims ? [...state.src] : [...SOURCE_IDS], initial: state.dims && state.initial, noSummary: state.dims && state.noSummary,
-  brand: state.brand, mfr: "", dpc: null, ppc: null, incl: [], excl: [] });
+  noDup: state.dupDim && state.noDup, brand: state.brand, brandNot: state.brandNot, model: state.model, mfr: "", dpc: null, ppc: null, incl: [], excl: [] });
+/* Version 1.0 (comment 2 of the review): a device filter (brand contains, brand does not contain, model number contains)
+   makes the selection a part of the product code: its numbers come from the report table, as for a brand before. */
+const devOn = () => Boolean(state.v06 && (state.brand || state.brandNot || state.model));
+const devText = () => devFilterText(state);
+const devLabel = () => (state.brand && !state.brandNot && !state.model ? `Brand “${state.brand}”` : `Device filter (${devText()})`);
 
 /* Work in progress. While a task runs: a bar at the top of the window, a status message with a spinner and the time
    (from 2 s), and a placeholder with "Calculating…" in each card of the tab that waits for its result. A tab render
@@ -3089,7 +3399,7 @@ function analysisCohort() {
   if (!state.v06) return Promise.resolve(c);
   return memo("sel", async () => {
     const key = state.key;
-    const n = state.brand ? (await q(`WITH ${cohortCte(c, schema(), hasText(), false)} SELECT count(*)::DOUBLE AS n FROM y`))[0].n
+    const n = devOn() ? (await q(`WITH ${cohortCte(c, schema(), hasText(), false)} SELECT count(*)::DOUBLE AS n FROM y`))[0].n
                           : (await productFacts(q, filters(), state.pc)).total;
     if (!live(key)) throw STALE;
     state.bigSel = n > SEL_MAX ? n : 0;
@@ -3120,11 +3430,14 @@ function drawFig(id) {
 function selectionText() {
   const p = productOf(state.pc), ev = state.ev.length === EVENT_IDS.length ? "all event types" : `event types ${state.ev.map(e => EVENTS.find(x => x.id === e).label.toLowerCase()).join(", ")}`;
   const more = [state.dims && state.src.length < SOURCE_IDS.length ? `report sources ${state.src.map(x => SOURCES.find(s => s.id === x).label.toLowerCase()).join(", ")}` : "",
-    state.dims && state.initial ? "initial reports only" : "", state.dims && state.noSummary ? "summary reports left out" : ""].filter(Boolean);
-  return `${state.pc} ${p?.name || ""}${state.brand ? `, brand contains "${state.brand}"` : ""}; received ${state.y0}–${state.y1}; ${ev}${more.length ? "; " + more.join("; ") : ""}`;
+    state.dims && state.initial ? "initial reports only" : "", state.dims && state.noSummary ? "summary reports left out" : "",
+    state.dupDim ? (state.noDup ? "possible duplicates left out" : "possible duplicates included") : ""].filter(Boolean);
+  return `${state.pc} ${p?.name || ""}${devOn() ? `, ${devText()}` : ""}; received ${state.y0}–${state.y1}; ${ev}${more.length ? "; " + more.join("; ") : ""}`;
 }
 const figCaption = title => `${title}. ${selectionText()}. Source: FDA MAUDE, reports received up to ${M.data_through}; MAUDE Signal Explorer ${APP_VERSION}, data version ${dataTag()}.`;
-const figFile = id => `maude_${state.pc}${state.brand ? "_" + state.brand.replace(/[^A-Z0-9]+/g, "-").slice(0, 30) : ""}_${state.y0}-${state.y1}_${id}`;
+const devTag = () => [state.brand, state.brandNot && "not-" + state.brandNot, state.model && "model-" + state.model].filter(Boolean)
+  .map(x => "_" + x.replace(/[^A-Za-z0-9]+/g, "-").slice(0, 30)).join("");
+const figFile = id => `maude_${state.pc}${devTag()}_${state.y0}-${state.y1}_${id}`;
 const exportSvgText = id => { const f = figs.get(id); return figureSvg(f.build(900), f.title, figCaption(f.title)); };
 function svgToPng(svgText, scale = 3) {
   return new Promise((resolve, reject) => {
@@ -3182,7 +3495,14 @@ async function openDatabase() {
 }
 /* DB END */
 
+/* Version 1.0 (comment 8 of the review of 2026-10-16): every version text of the page comes from APP_VERSION; the footer had
+   "0.7" written in since version 0.7. */
+function showVersion() {
+  document.querySelectorAll(".appVer").forEach(e => { e.textContent = APP_VERSION; });
+  if (M && M.tables) $("footCite").textContent = citeText();
+}
 async function start() {
+  showVersion();
   try {
     const r = await fetch(new URL("site/manifest.json", BASE));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3207,6 +3527,15 @@ async function start() {
     if (M.tables.timely) for (const t of ["timely", "tl_mfr", "tl_dev"]) await q(`CREATE VIEW ${t} AS SELECT * FROM ${tableSql(t)}`);
     if (["bg_pc", "bg_totals", "bg_dp", "bg_pp"].every(t => M.tables[t]?.length))  // version 0.9: the comparison background
       for (const t of ["bg_pc", "bg_totals", "bg_dp", "bg_pp"]) await q(`CREATE VIEW ${t} AS SELECT * FROM ${tableSql(t)}`);
+    // version 1.0 (point 3): the concept kinds (count tables of the pipeline) and the small tables concepts and concept_map
+    state.kinds = ["dp", "pp", ...Object.keys(M.concept_kinds || {}).filter(k => KIND[k] && ["pair", "code", "idx"].every(t => M.tables[`${t}_${k}`]?.length))];
+    if (state.kinds.length > 2 && M.tables.concepts && M.tables.concept_map) {
+      await q(`CREATE TABLE concepts AS SELECT * FROM ${tableSql("concepts")}`);
+      await q(`CREATE TABLE concept_map AS SELECT * FROM ${tableSql("concept_map")}`);
+      for (const k of state.kinds.slice(2)) for (const t of ["pair", "code", "idx", "bg"])
+        if (M.tables[`${t}_${k}`]?.length) await q(`CREATE VIEW ${t}_${k} AS SELECT * FROM ${tableSql(`${t}_${k}`)}`);
+    } else state.kinds = ["dp", "pp"];
+    if (!state.kinds.includes(state.kind)) state.kind = baseKind(state.kind);
     for (const t of ["reports", "text_pc"]) {  // version 0.6.1 data: the product code range of each file (tableFor)
       const r = M.file_ranges?.[t];
       if (M.tables[t] && Array.isArray(r) && r.length === M.tables[t].length) FILE_RANGES[t] = { ranges: r, sql: idx => fileSql(t, idx) };
@@ -3215,8 +3544,11 @@ async function start() {
     else await q(`CREATE TABLE cls (product_code VARCHAR, device_name VARCHAR, device_class VARCHAR, implant VARCHAR,
                   life_sustaining VARCHAR, specialty_code VARCHAR, specialty VARCHAR)`);
     await q(`CREATE TABLE totals AS SELECT * FROM ${tableSql("totals")}`);
-    await q(`CREATE TABLE dict AS SELECT CODE_TYPE, CODE, TERM, STATUS FROM ${tableSql("dictionary")}`);
-    state.dims = (await q("DESCRIBE totals")).some(r => r.column_name === "src");
+    await q(dictSql(tableSql("dictionary"), (await q(`DESCRIBE SELECT * FROM ${tableSql("dictionary")}`)).map(r => r.column_name)));
+    const tcols = (await q("DESCRIBE totals")).map(r => r.column_name);
+    state.dims = tcols.includes("src");
+    // version 1.0 (point 1): the report table has dup_extra and the count tables the dimension dup
+    state.dupDim = DATA.dup = tcols.includes("dup") && (M.reports_schema || []).some(x => x[0] === "dup_extra");
     state.v06 = Boolean(M.tables.reports) && hasV06(schema());
     const pcols = new Set((await q(`DESCRIBE SELECT * FROM ${tableSql("products")}`)).map(r => r.column_name));
     const pc = c => pcols.has(c) ? c : `NULL AS ${c}`;
@@ -3237,9 +3569,10 @@ async function start() {
   state.y0 = clampYear(state.y0 || state.yMin); state.y1 = clampYear(state.y1 || state.yMax);
   if (state.y0 > state.y1) [state.y0, state.y1] = [state.y1, state.y0];
   if (!state.dims) { state.src = [...SOURCE_IDS]; state.initial = state.noSummary = false; }
-  if (!state.v06) state.brand = "";
+  if (!state.v06) state.brand = state.brandNot = state.model = "";
   if (state.crit === "ebgm" && !ebgmAny()) state.crit = "ror";  // data without a stored EBGM prior (before version 0.8)
   $("dataInfo").innerHTML = `${NF.format(M.n_reports)} reports received up to ${esc(M.data_through)}<br>Data version ${esc(dataTag())} · explorer version ${APP_VERSION}`;
+  showVersion();
   const css = document.createElement("style");
   css.textContent = CHART_CSS;
   document.head.append(css);
@@ -3264,7 +3597,7 @@ async function start() {
     if (state.pc) { state.page = "device"; showPage(); state.tab = "methods"; showTab(); $("p-methods").scrollIntoView({ block: "start" }); }
     else { state.page = "device"; showPage(); $("landing").scrollIntoView(); status("Select a device type: the Methods tab describes its analysis."); setTimeout(() => status(""), 3000); }
   };
-  if (state.pc && productOf(state.pc)) selectProduct(state.pc, state.brand);
+  if (state.pc && productOf(state.pc)) selectProduct(state.pc, state.brand, true);
   else showLanding();
   showPage();
 }
@@ -3297,6 +3630,20 @@ function buildControls() {
       <input type="checkbox" value="${e.id}" ${state.ev.includes(e.id) ? "checked" : ""}><span class="dot"></span>${e.label}</label>`).join("");
   $("fSrc").innerHTML = SOURCES.map(x => `<label class="chip" style="--c:var(--accent)"><input type="checkbox" value="${x.id}" ${state.src.includes(x.id) ? "checked" : ""}><span class="dot"></span>${x.label}</label>`).join("");
   $("fInitial").checked = state.initial; $("fNoSummary").checked = state.noSummary;
+  $("fNoDupL").hidden = !state.dupDim; $("fNoDup").checked = state.noDup;
+  // version 1.0 (comment 2): the device filter; the model fields only with a model column in the report table
+  const hasModel = (M.reports_schema || []).some(x => x[0] === "model");
+  document.querySelectorAll("#fModelL, .cModel").forEach(e => { e.hidden = !hasModel; });
+  $("fBrand").value = state.brand; $("fBrandNot").value = state.brandNot; $("fModel").value = state.model;
+  const onDev = () => {
+    const v = id => $(id).value.trim().toUpperCase().slice(0, 80);
+    if (v("fBrand") === state.brand && v("fBrandNot") === state.brandNot && v("fModel") === state.model) return;
+    state.brand = v("fBrand"); state.brandNot = v("fBrandNot"); state.model = hasModel ? v("fModel") : "";
+    const p = productOf(state.pc);
+    $("q").value = state.brand ? `${state.brand} (${state.pc})` : `${state.pc} ${p?.name || ""}`.trim();
+    selectionChanged();
+  };
+  ["fBrand", "fBrandNot", "fModel"].forEach(id => $(id).addEventListener("change", onDev));
   $("crit").innerHTML = Object.entries(CRITERIA).filter(([k]) => k !== "ebgm" || ebgmAny())
     .map(([k, c]) => `<option value="${k}" ${k === state.crit ? "selected" : ""}>${esc(c.label)}</option>`).join("");
   if (!state.dims) {
@@ -3309,16 +3656,16 @@ function buildControls() {
   };
   const onMore = () => {
     state.src = [...$("fSrc").querySelectorAll("input:checked")].map(i => i.value);
-    state.initial = $("fInitial").checked; state.noSummary = $("fNoSummary").checked;
+    state.initial = $("fInitial").checked; state.noSummary = $("fNoSummary").checked; state.noDup = $("fNoDup").checked;
     selectionChanged();
   };
   $("fSrc").addEventListener("change", onMore);
-  $("fInitial").addEventListener("change", onMore); $("fNoSummary").addEventListener("change", onMore);
+  $("fInitial").addEventListener("change", onMore); $("fNoSummary").addEventListener("change", onMore); $("fNoDup").addEventListener("change", onMore);
   $("activeLine").addEventListener("click", e => {
     if (!e.target.closest("button")) return;
-    state.src = [...SOURCE_IDS]; state.initial = state.noSummary = false;
+    state.src = [...SOURCE_IDS]; state.initial = state.noSummary = false; state.brandNot = state.model = ""; state.noDup = true;
     $("fSrc").querySelectorAll("input").forEach(i => { i.checked = true; });
-    $("fInitial").checked = $("fNoSummary").checked = false;
+    $("fInitial").checked = $("fNoSummary").checked = false; $("fNoDup").checked = true; $("fBrandNot").value = $("fModel").value = "";
     selectionChanged();
   });
 
@@ -3408,14 +3755,15 @@ function showLanding() {
 
 /* The start page: no device type selected (the list of device types with the most reports). */
 function goHome() {
-  state.pc = ""; state.brand = ""; state.page = "device"; $("q").value = "";
+  state.pc = ""; state.brand = state.brandNot = state.model = ""; state.page = "device"; $("q").value = "";
   showPage(); selectionChanged();
   window.scrollTo(0, 0);
   if (matchMedia("(pointer: fine)").matches) $("q").focus();  // not on a phone (the keyboard would open)
 }
 
-function selectProduct(pc, brand = "") {
+function selectProduct(pc, brand = "", keep = false) {  // keep: the device filter of the address (start of the page)
   state.pc = pc; state.brand = state.v06 ? (brand || "").toUpperCase() : "";
+  if (!keep || !state.v06) state.brandNot = state.model = "";
   const p = productOf(pc);
   $("q").value = state.brand ? `${state.brand} (${pc})` : `${pc} ${p?.name || ""}`.trim();
   $("landing").hidden = true; $("product").hidden = false;
@@ -3439,21 +3787,26 @@ function selectionChanged() {
 function renderHeader() {
   const p = productOf(state.pc);
   $("pTitle").innerHTML = `<span class="code">${state.pc}</span> ${esc(p?.name || "No device name")}`;
-  $("crumbHere").textContent = state.brand ? `${state.pc}, brand ${state.brand}` : state.pc;
+  $("crumbHere").textContent = state.brand && !state.brandNot && !state.model ? `${state.pc}, brand ${state.brand}` : devOn() ? `${state.pc}, ${devText()}` : state.pc;
   const alt = p?.generic && p.generic.toLowerCase() !== (p.name || "").toLowerCase() ? `Most frequent generic name in the reports: ${p.generic}` : "";
   $("pAlt").textContent = alt; $("pAlt").hidden = !alt;
   const cls = { 1: "Class I", 2: "Class II", 3: "Class III", U: "Unclassified", N: "Not classified", F: "HDE" };
-  $("pBadges").innerHTML = (state.brand ? `<li class="brandb">Brand contains “${esc(state.brand)}” <button type="button" class="linkbtn" id="brandOff">Show all brands</button></li>` : "")
+  const devB = [state.brand ? `Brand contains “${esc(state.brand)}”` : "", state.brandNot ? `Brand does not contain “${esc(state.brandNot)}”` : "",
+    state.model ? `Model number contains “${esc(state.model)}”` : ""].filter(Boolean);
+  $("pBadges").innerHTML = (devOn() ? `<li class="brandb">${devB.join(" · ")} <button type="button" class="linkbtn" id="brandOff">Show all brands and models</button></li>` : "")
     + [p?.device_class ? cls[p.device_class] || `Class ${p.device_class}` : "", p?.specialty || "",
        p?.implant === "Y" ? "Implantable" : "", p?.life_sustaining === "Y" ? "Life-sustaining or life-supporting" : ""]
       .filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
   if ($("brandOff")) $("brandOff").onclick = () => selectProduct(state.pc, "");
   const act = [state.src.length < SOURCE_IDS.length ? `report sources: ${state.src.map(x => SOURCES.find(s => s.id === x).label.toLowerCase()).join(", ") || "none"}` : "",
-    state.initial ? "initial reports only" : "", state.noSummary ? "summary reports left out" : ""].filter(Boolean);
+    state.initial ? "initial reports only" : "", state.noSummary ? "summary reports left out" : "",
+    state.dupDim && !state.noDup ? "possible duplicates included" : "",
+    state.brandNot ? `brand does not contain "${state.brandNot}"` : "", state.model ? `model number contains "${state.model}"` : ""].filter(Boolean);
+  $("fBrand").value = state.brand; $("fBrandNot").value = state.brandNot; $("fModel").value = state.model;
   $("activeLine").hidden = !act.length;
   $("activeLine").innerHTML = act.length ? `Active: ${esc(act.join(" · "))} · <button type="button" class="linkbtn">Clear</button>` : "";
   $("moreBtn").textContent = act.length ? `More filters (${act.length})` : "More filters";
-  $("moreNote").textContent = "These filters apply to all tabs, the signal tables included.";
+  $("moreNote").textContent = "These filters apply to all tabs, the signal tables included." + (state.dupDim && state.noDup ? " Possible duplicates are left out by default." : "");
   saveUrl();
 }
 
@@ -3501,7 +3854,7 @@ function renderTab(tab) {
 /* ------------------------------------------------------------------ data of the selection (memoized) */
 /* Version 0.8: the stored EBGM prior (precompute.mjs) for the selection, or null. exact = false: the filters or a brand
    make another selection than the selection of the fit (the prior is an approximation, and the page says so). */
-const ebgmNow = (kind, g = null) => ebgmPriorUse(M.ebgm, kind, filters(), Boolean(state.brand && state.v06), g);
+const ebgmNow = (kind, g = null) => ebgmPriorUse(M.ebgm, kind, filters(), devOn(), g);
 const ebgmAny = () => ["dp", "pp"].some(k => ebgmPriorUse(M.ebgm, k, filters()));
 /* Version 0.9: the comparison background (the select "Compared with" of the Signals tab; every signal table of the page
    uses it: Overview, Signals, Compare, Methods and the downloads). hasBg(): the data have the background tables.
@@ -3510,14 +3863,19 @@ const ebgmAny = () => ["dp", "pp"].some(k => ebgmPriorUse(M.ebgm, k, filters()))
 const hasBg = () => ["bg_pc", "bg_totals", "bg_dp", "bg_pp"].every(t => M.tables[t]?.length);
 const bgInfo = () => memo("bg", async () => (hasBg() && state.pc ? bgGroups(q, state.pc) : {}));
 async function bgUse() {
+  if (state.bg === "custom") {  // version 1.0: the custom group (report table; needs data of version 0.6 or later)
+    const g = state.v06 ? customGroup(state.pc, state.bgCodes) : null;
+    return g ? { id: "custom", g, label: customPcs(g).join(", "), n_codes: customPcs(g).length } : null;
+  }
   const groups = await bgInfo(), g = bgGroupOf(groups, state.bg);
   return g ? { id: state.bg, ...groups[state.bg] } : null;
 }
+const bgKey = () => (state.bg === "custom" ? `custom:${state.bgCodes}` : state.bg);  // memo keys
 const bgOf = id => BACKGROUNDS.find(b => b.id === id) || BACKGROUNDS[0];
 const bgLabel = b => b ? `${bgOf(b.id).label}: ${b.label} (${b.g})` : BACKGROUNDS[0].label;
-const sigTable = kind => memo(`sig:${kind}:${state.bg}`, async () => {
+const sigTable = kind => memo(`sig:${kind}:${bgKey()}:${state.inclAdmin ? "a" : ""}`, async () => {
   const b = await bgUse(), g = b ? b.g : null;
-  const res = await ((state.brand && state.v06)
+  const res = await (devOn()
     ? signalTableSel(q, await analysisCohort(), schema(), hasText(), filters(), kind, "true", ebgmNow(kind, g), g)
     : signalTable(q, filters(), state.pc, kind, ebgmNow(kind, g), g));
   return { ...res, bg: b };
@@ -3527,7 +3885,7 @@ async function selTrendRows(c) {
             WHERE year IS NOT NULL GROUP BY ALL ORDER BY y`);
 }
 const basics = () => memo("basics", async () => {
-  if (state.brand && state.v06) {
+  if (devOn()) {
     const c = await analysisCohort();
     const rows = await selTrendRows(c);
     const by = {};
@@ -3610,7 +3968,7 @@ RENDER.overview = async key => {
       <span class="m">${NF.format(r.a)} reports · ${fmt(r.ror, 1)} times as often</span><span class="m x" style="text-align:right">q ${fmtLnP(r.lnQ)}</span></li>`).join("")
     || `<li><span class="m">No device problem meets the signal rule.</span></li>`;
   $("ovSigAll").textContent = `Open all ${NF.format(res.rows.length)} device problems`;
-  $("ovShort").innerHTML = inShortHtml({ y0: state.y0, y1: state.y1, n, pc: state.pc, brand: state.brand, deaths, serious: pf ? pf.serious : 0, hasV06: Boolean(pf),
+  $("ovShort").innerHTML = inShortHtml({ y0: state.y0, y1: state.y1, n, pc: state.pc, brand: state.brand, brandNot: state.brandNot, model: state.model, deaths, serious: pf ? pf.serious : 0, hasV06: Boolean(pf),
     nSignals: ranked.length, signals: ranked.slice(0, 3).map(r => r.term || `code ${r.code}`), kindType: "device", ruleText: CRITERIA[state.crit].label, bg: res.bg });
   document.querySelectorAll("#p-overview .v06").forEach(x => { x.hidden = !pf; });
   if (!pf) return;
@@ -3626,7 +3984,9 @@ RENDER.overview = async key => {
     <p class="note">Female ${pctTxt(sexOf(pf.female), 0)} · Male ${pctTxt(sexOf(pf.male), 0)} · Unknown ${pctTxt(sexOf(pf.sex_other), 0)} (of ${NF.format(known)} reports that give the sex)</p>`;
   const dq = (label, x) => `<dt>${label}</dt><dd>${pctTxt(x / pf.n)}</dd>`;
   $("ovDq").innerHTML = dq("Date of event missing", pf.no_event_date) + dq(`Summary reports${state.noSummary ? " (left out)" : ""}`, pf.summary_reports)
-    + dq("Possible duplicate reports", pf.dup_reports) + dq("Retired device problem codes", pf.retired_codes) + dq("No patient record", pf.no_patient);
+    // version 1.0: the reports after the first of a group of possible duplicates (left out by default)
+    + (state.dupDim ? `<dt>Possible duplicates after the first report${state.noDup ? " (left out)" : ""}</dt><dd>${pctTxt(pf.dup_extra / (pf.n + (state.noDup ? pf.dup_extra : 0)))}</dd>`
+      : dq("Possible duplicate reports", pf.dup_reports)) + dq("Retired device problem codes", pf.retired_codes) + dq("No patient record", pf.no_patient);
 };
 
 /* ------------------------------------------------------------------ Signals */
@@ -3647,13 +4007,14 @@ const COLS = [
 const sigCols = () => COLS.filter(c => !c.ebgm || state.result?.prior);  // the EBGM columns only with a prior (version 0.8)
 function ebgmNoteText(res, kind) {  // which prior the EBGM values use (version 0.9: the prior of the background group)
   const e = M.ebgm, p = res && res.prior, g = res && res.g, k = e && (g ? e.bg && e.bg[g] && e.bg[g][kind] : e[kind]);
+  if (!p && customPcs(g)) return `No EBGM for ${KIND[kind].type} problems with a custom group: the page fits no prior (precompute.mjs fits the priors of the groups of the FDA classification only). The other rules work.`;
   if (!p) return e ? `No EBGM for ${KIND[kind].type} problems${g ? " with this comparison background" : ""}: ${e.format !== EBGM_FORMAT || e.hash !== ebgmHash() ? "the stored prior was made with other code of the page; run precompute.mjs again"
     : !k ? (g ? "the data have no prior for this background; run precompute.mjs of version 0.9 or later" : "the data have no prior for them")
     : !(k.stable && k.converged) ? "the fit of the prior is not stable (equally good fits give another EB05, or a rate or a shape at a limit) or did not converge"
     : `with this prior one report could meet the EBGM rule (EB05 ${ebgmOneReport(k).toFixed(2)} for one report where ${NF.format(k.N)} reports give an expected count of 1/${NF.format(k.N)}): the prior has no specificity`}.` : "";
   return `EBGM prior: ${ebgmPriorLabel(p)}, fitted on all ${NF.format(k.cells)} product code × ${KIND[kind].type} problem cells of `
     + `${g && res.bg ? `the product codes of this comparison background (${res.bg.label}), reports` : "all reports"} ${e.y0}–${e.y1}`
-    + (p.exact ? "." : ". Approximate prior: this selection has other filters" + (state.brand ? " or a brand" : "") + " than the fit.");
+    + (p.exact ? "." : ". Approximate prior: this selection has other filters" + (devOn() ? (state.brand && !state.brandNot && !state.model ? " or a brand" : " or a device filter") : "") + " than the fit.");
 }
 const FMIN = 0.1, FMAX = 100, FW = 150;
 const fx = v => { const l = Math.log10(Math.min(FMAX, Math.max(FMIN, v))); return 6 + (l + 1) / 3 * (FW - 12); };
@@ -3673,9 +4034,13 @@ function forestCell(r) {
     <rect class="pt" x="${pt - 4}" y="4" width="8" height="8"/></svg>`;
 }
 function codeLabel(r) {
+  if (r.status === "group") {  // version 1.0: a group of codes (IMDRF group or clinical concept)
+    const id = unitOf(state.kind).id === "clinical" ? `concept ${r.code}` : r.imdrf ? `IMDRF ${r.imdrf}` : `code ${r.code}, no IMDRF code`;
+    return `<span class="term">${esc(r.term || "No description")}</span><span class="codeinfo">${esc(id)} · ${NF.format(r.n_codes || 0)} code${r.n_codes === 1 ? "" : "s"}</span>${r.admin ? '<span class="tag">administrative</span>' : ""}`;
+  }
   const tag = { archived_evs: "retired code", archived_fda: "retired code", cross_type: "entered in the wrong field",
                 unknown: "unknown code", inferred_openfda: "inferred term" }[r.status];
-  return `<span class="term">${esc(r.term || "No description")}</span><span class="codeinfo">${r.code}</span>${tag ? `<span class="tag">${tag}</span>` : ""}`;
+  return `<span class="term">${esc(r.term || "No description")}</span><span class="codeinfo">${r.code}</span>${tag ? `<span class="tag">${tag}</span>` : ""}${r.admin && r.status !== "cross_type" ? '<span class="tag">administrative</span>' : ""}`;
 }
 function visibleRows() {
   const res = state.result; if (!res) return [];
@@ -3694,18 +4059,36 @@ function visibleRows() {
 }
 function buildSignalControls() {
   document.querySelectorAll("#p-signals [data-kind]").forEach(b => b.addEventListener("click", () => {
-    if (state.kind === b.dataset.kind) return;
-    state.kind = b.dataset.kind; state.selected = null; state.sort = { key: "rorLo", dir: -1 };
+    if (baseKind(state.kind) === b.dataset.kind) return;
+    // version 1.0: the other kind with the same unit (problem codes, IMDRF groups, clinical concepts)
+    const k = kindOf(b.dataset.kind, unitOf(state.kind).id);
+    state.kind = state.kinds.includes(k) ? k : b.dataset.kind; state.selected = null; state.sort = { key: "rorLo", dir: -1 };
     $("pairReports").hidden = true; saveUrl(); renderTab("signals");
   }));
+  // version 1.0 (point 3): the unit of the signal table; (point 4): the administrative codes
+  $("unit").innerHTML = UNITS.map(u => `<option value="${u.id}">${u.label}</option>`).join("");
+  $("unit").addEventListener("change", () => {
+    const k = kindOf(baseKind(state.kind), $("unit").value);
+    if (!state.kinds.includes(k) || k === state.kind) return;
+    state.kind = k; state.selected = null; state.sort = { key: "rorLo", dir: -1 }; $("pairReports").hidden = true; saveUrl(); renderTab("signals");
+  });
+  $("inclAdmin").checked = state.inclAdmin;
+  $("inclAdmin").addEventListener("change", () => { state.inclAdmin = $("inclAdmin").checked; state.selected = null; $("pairReports").hidden = true; saveUrl(); renderTab("signals"); });
   $("crit").addEventListener("change", () => { state.crit = $("crit").value; saveUrl(); renderTable(); drawVolcano(); if (state.selected !== null) openPair(state.selected); });
   $("bg").addEventListener("change", () => {  // version 0.9: another background gives other tables (memo key sig:kind:bg)
     state.bg = bgOf($("bg").value).id; $("pairReports").hidden = true; saveUrl(); renderTab("signals");
+    if (state.bg === "custom" && !state.bgCodes) $("bgCodes").focus();
+  });
+  $("bgCodes").addEventListener("change", () => {  // version 1.0: the product codes of the custom group
+    state.bgCodes = $("bgCodes").value.toUpperCase().split(/[^A-Z0-9]+/).filter(x => /^[A-Z0-9]{3}$/.test(x)).join(",");
+    $("bgCodes").value = state.bgCodes.replace(/,/g, ", "); state.selected = null; $("pairReports").hidden = true; saveUrl(); renderTab("signals");
   });
   $("filt").addEventListener("input", () => { state.filter = $("filt").value.trim().toLowerCase(); renderTable(); });
   $("minA").addEventListener("change", () => { state.minA = Math.max(1, +$("minA").value | 0); $("minA").value = state.minA; renderTable(); });
   $("onlySig").addEventListener("change", () => { state.onlySig = $("onlySig").checked; renderTable(); });
   $("export").addEventListener("click", exportCsv);
+  // version 1.0 (comment 7 of the review): the sensitivity analysis is in the Signals tab and runs on request
+  $("sensRun").addEventListener("click", () => { const key = state.key; work(async () => { const s = await sensitivity(); if (live(key)) drawSensitivity(s); }, "Calculating the sensitivity analysis…"); });
   $("exportX").addEventListener("click", () => {
     const rows = visibleRows(); if (!rows.length) return;
     const [head, ...body] = signalSheet(rows, state.result, state.kind);
@@ -3723,8 +4106,11 @@ function buildSignalControls() {
   $("resBody").onkeydown = e => { if (e.key === "Enter") { const tr = e.target.closest("tr[data-code]"); if (tr) openPair(+tr.dataset.code); } };
 }
 RENDER.signals = async key => {
-  document.querySelectorAll("#p-signals [data-kind]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.kind === state.kind)));
+  document.querySelectorAll("#p-signals [data-kind]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.kind === baseKind(state.kind))));
   $("crit").value = state.crit;
+  // version 1.0: the units that the data have (data before 1.0: problem codes only)
+  [...$("unit").options].forEach(o => { o.disabled = !state.kinds.includes(kindOf(baseKind(state.kind), o.value)); });
+  $("unit").value = unitOf(state.kind).id; $("unitL").hidden = state.kinds.length <= 2; $("inclAdmin").checked = state.inclAdmin;
   if (!state.ev.length) {
     state.result = null;
     $("resHead").innerHTML = ""; $("resBody").innerHTML = `<tr><td class="empty">Select at least one event type.</td></tr>`;
@@ -3735,25 +4121,47 @@ RENDER.signals = async key => {
   state.result = res;
   fillBg(groups);
   const b = res.bg, notes = [];
-  if (b) notes.push(`Compared with the ${NF.format(b.n_codes - 1)} other product code${b.n_codes === 2 ? "" : "s"} of ${bgOf(b.id).short} in the FDA product classification `
+  if (b && b.id === "custom") notes.push(`Compared with the ${NF.format(b.n_codes - 1)} other product code${b.n_codes === 2 ? "" : "s"} of the custom group (${b.label}): `
+    + `${NF.format(res.N)} reports with a ${KIND[state.kind].type} problem code (from the report table; a report with two product codes of the group counts once). The expected counts and all measures use only these reports. No EBGM: the page fits no prior for a custom group.`);
+  else if (b) notes.push(`Compared with the ${NF.format(b.n_codes - 1)} other product code${b.n_codes === 2 ? "" : "s"} of ${bgOf(b.id).short} in the FDA product classification `
     + `(${b.label}): ${NF.format(res.N)} reports with a ${KIND[state.kind].type} problem code. The expected counts and all measures use only these reports.`);
+  else if (state.bg === "custom") notes.push("Type at least one other product code for the custom group (for example DTB, NVN). Until then the table compares with all other device types.");
   else if (state.bg !== "all") notes.push(`${state.pc} has no group of ${bgOf(state.bg).short} with other product codes${hasBg() ? "" : " in this data version"}: the table compares it with all other device types.`);
-  if (state.brand) notes.push(`Brand “${state.brand}”: the reports of product code ${state.pc} whose brand name contains this text, compared with ${b ? "the other reports of this background (its other product codes and the other brands)" : "all other reports (all other product codes and the other brands)"}. The trend of the signal per year is given for the whole product code only.`);
+  // version 1.0 (point 4): the administrative codes that the table leaves out; (point 3): the unit (a line of their own)
+  const notes2 = [];
+  if (res.nAdmin) notes2.push(`${NF.format(res.nAdmin)} administrative code${res.nAdmin === 1 ? " is" : "s are"} not in the table, the ranking or the FDR family (no problem, no information or no code, planned actions, codes entered in the other field). Select “Include administrative codes” to see ${res.nAdmin === 1 ? "it" : "them"}.`);
+  if (unitOf(state.kind).id === "imdrf") notes2.push("Unit: IMDRF groups. The codes with the same level-2 IMDRF code are one group (a code without an IMDRF code: by an equal term or the crosswalk table, else alone); a report counts once per group.");
+  if (unitOf(state.kind).id === "clinical") notes2.push("Unit: clinical concepts. Pre-specified groups of codes across the IMDRF hierarchy (see Methods); a report counts once per concept; a code can be in more than one concept, and codes in no concept are not in this table.");
+  if (devOn()) notes.push(`${devLabel()}: the reports of product code ${state.pc} ${state.brand && !state.brandNot && !state.model ? "whose brand name contains this text" : "that meet this filter"}, compared with ${b ? "the other reports of this background (its other product codes and the other brands)" : "all other reports (all other product codes and the other brands)"}. The trend of the signal per year is given for the whole product code only.`);
   $("sigNote").hidden = !notes.length;
   $("sigNote").textContent = notes.join(" ");
+  $("sigNote2").hidden = !notes2.length;
+  $("sigNote2").textContent = notes2.join(" ");
   renderTable();
   drawVolcano();
   if (state.selected !== null) await openPair(state.selected); else $("drawer").hidden = true;
+  showSensitivity();
 };
+/* The sensitivity card of the Signals tab: the result of this selection, kind, rule and background if it was calculated, else
+   the button only (the scenarios read the report table; the Signals tab itself reads only the count tables). */
+function showSensitivity() {
+  const p = cache.get(sensKey());
+  $("sensTable").innerHTML = ""; $("sensNote").textContent = p ? "" : "Select Calculate to repeat this analysis under each scenario.";
+  if (p) p.then(s => { if (cache.get(sensKey()) === p) drawSensitivity(s); }).catch(() => {});
+}
 /* The select "Compared with" (version 0.9): the backgrounds that the product code has; the others are disabled with the reason. */
 function fillBg(groups) {
+  const cust = state.v06 ? customGroup(state.pc, state.bgCodes) : null;
+  $("bgCodes").hidden = state.bg !== "custom";
+  if (document.activeElement !== $("bgCodes")) $("bgCodes").value = state.bgCodes.replace(/,/g, ", ");
   $("bg").innerHTML = BACKGROUNDS.map(b => {
+    if (b.id === "custom") return `<option value="custom"${state.v06 ? "" : " disabled"}>${esc(cust ? `Custom group: ${customPcs(cust).join(", ")}` : "Custom group…")}${state.v06 ? "" : " (needs the report table)"}</option>`;
     const x = groups[b.id], ok = b.id === "all" || Boolean(bgGroupOf(groups, b.id));
     const why = b.id === "all" ? "" : !hasBg() ? " (not in this data version)" : !x ? " (no classification group)"
       : ok ? "" : x.n_codes < 2 ? ` (${x.label}: no other product code)` : ` (${x.label}: ${NF.format(x.n_reports)} reports; at least ${NF.format(BG_MIN_REPORTS)} needed)`;
     return `<option value="${b.id}"${ok ? "" : " disabled"}${x ? ` title="${esc(`${b.label}: ${x.label}, ${NF.format(x.n_codes)} product codes`)}"` : ""}>${esc(ok && x ? `${b.opt}: ${x.label} (${NF.format(x.n_codes)} codes)` : b.opt + why)}</option>`;
   }).join("");
-  $("bg").value = bgGroupOf(groups, state.bg) ? state.bg : "all";
+  $("bg").value = state.bg === "custom" && state.v06 ? "custom" : bgGroupOf(groups, state.bg) ? state.bg : "all";
 }
 function drawVolcano() {
   const res = state.result; if (!res) return;
@@ -3772,10 +4180,12 @@ function renderTable() {
   const rows = visibleRows(), res = state.result;
   if (!res) return;
   $("ebgmNote").textContent = ebgmNoteText(res, state.kind); $("ebgmNote").hidden = !$("ebgmNote").textContent;
+  $("limNote").textContent = limitNoteText(res.nP, res.N, KIND[state.kind].type, res.bg ? `, ${res.bg.label}` : "");
+  $("limNote").hidden = !$("limNote").textContent; $("limNote").classList.toggle("warn", oeLimit(res.nP, res.N) < 10);
   document.querySelectorAll("#p-signals .bgw").forEach(x => { x.textContent = bgText(res.bg); });
   document.querySelectorAll("#p-signals .bgw2").forEach(x => { x.textContent = res.bg ? bgText(res.bg) : "all other device types"; });
   const nSig = res.rows.filter(CRITERIA[state.crit].test).length;
-  $("tblTitle").textContent = `${NF.format(res.rows.length)} ${KIND[state.kind].type} problems · ${NF.format(nSig)} signal${nSig === 1 ? "" : "s"}`;
+  $("tblTitle").textContent = `${NF.format(res.rows.length)} ${KIND[state.kind].type} ${isConcept(state.kind) ? unitOf(state.kind).noun + "s" : "problems"} · ${NF.format(nSig)} signal${nSig === 1 ? "" : "s"}`;
   $("count").textContent = `${NF.format(rows.length)} of ${NF.format(res.rows.length)} problems shown, ${NF.format(rows.filter(r => r.sig).length)} signals`;
   if (!rows.length) {
     $("resBody").innerHTML = `<tr><td colspan="${cols.length}" class="empty">${res.rows.length
@@ -3786,21 +4196,28 @@ function renderTable() {
   $("resBody").innerHTML = rows.slice(0, 1500).map(r => `<tr data-code="${r.code}" class="${r.sig ? "sig" : ""} ${r.a < 3 ? "few" : ""} ${state.selected === r.code ? "sel" : ""}" tabindex="0">`
     + `<td>${codeLabel(r)}</td><td class="num">${NF.format(r.a)}</td><td class="num">${fmt(r.expected, 1)}</td>
     <td class="forest">${forestCell(r)}</td><td class="num">${fmt(r.ror)}</td><td class="num">${fmt(r.prr)}</td>
-    <td class="num">${fmt(r.chi2, 1)}</td><td class="num">${fmt(r.ic025)}</td>${res.prior ? `<td class="num">${fmt(r.ebgm)}</td><td class="num">${fmt(r.eb05)}</td>` : ""}<td class="num">${fmtLnP(r.lnQ)}</td>
+    <td class="num">${fmt(r.chi2, 1)}</td><td class="num">${fmt(r.ic025)}${limMark(r)}</td>${res.prior ? `<td class="num">${fmt(r.ebgm)}${limMark(r)}</td><td class="num">${fmt(r.eb05)}${limMark(r)}</td>` : ""}<td class="num">${fmtLnP(r.lnQ)}</td>
     <td>${r.sig ? '<span class="flag">Signal</span>' : ""}</td></tr>`).join("");
 }
+const limMark = r => (limitShare(r) >= OE_NEAR ? `<span class="lim" title="${esc(`${pctTxt(limitShare(r))} of the reports with this problem are of this selection: at or near the limit N / nP`)}">†</span>` : "");
 function signalSheet(rows, res, kind) {
-  const head = ["product_code", "brand_contains", "problem_kind", "code", "term", "code_status", "a", "b", "c", "d", "expected", "ror", "ror_lo95", "ror_hi95",
-    "prr", "prr_lo95", "prr_hi95", "chi2_yates", "ic", "ic025", "ebgm", "eb05", "eb95", "ebgm_prior", "fisher_p_one_sided", "q_bh", "fdr_m", "signal", "signal_rule", "background"];
-  const test = CRITERIA[state.crit].test, pr = ebgmPriorText(res.prior);
-  return [head, ...rows.map(r => [state.pc, state.brand, KIND[kind].type, r.code, r.term, r.status, r.a, r.b, r.c, r.d, r.expected, r.ror, r.rorLo, r.rorHi,
-    r.prr, r.prrLo, r.prrHi, r.chi2, r.ic, r.ic025, r.ebgm ?? null, r.eb05 ?? null, r.eb95 ?? null, pr, fmtLnP(r.lnP, 6), fmtLnP(r.lnQ, 6), res.m, test(r) ? 1 : 0, CRITERIA[state.crit].label, bgLabel(res.bg)])];
+  const head = ["product_code", "brand_contains", "brand_not_contains", "model_contains", "problem_kind", "code", "term", "code_status", "a", "b", "c", "d", "expected", "ror", "ror_lo95", "ror_hi95",
+    "prr", "prr_lo95", "prr_hi95", "chi2_yates", "ic", "ic025", "ebgm", "eb05", "eb95", "ebgm_prior", "fisher_p_one_sided", "q_bh", "fdr_m", "signal", "signal_rule", "background",
+    "share_of_problem_reports", "oe_limit", "unit", "administrative_codes", "possible_duplicates"];
+  const test = CRITERIA[state.crit].test, pr = ebgmPriorText(res.prior), ex = exportFlags();
+  return [head, ...rows.map(r => [state.pc, state.brand, state.brandNot, state.model, KIND[kind].type, r.code, r.term, r.status, r.a, r.b, r.c, r.d, r.expected, r.ror, r.rorLo, r.rorHi,
+    r.prr, r.prrLo, r.prrHi, r.chi2, r.ic, r.ic025, r.ebgm ?? null, r.eb05 ?? null, r.eb95 ?? null, pr, fmtLnP(r.lnP, 6), fmtLnP(r.lnQ, 6), res.m, test(r) ? 1 : 0, CRITERIA[state.crit].label, bgLabel(res.bg),
+    limitShare(r), oeLimit(res.nP, res.N), ex.unit, ex.admin, ex.dup])];
 }
+/* Version 1.0: the unit, the administrative codes and the possible duplicates of a downloaded signal table. */
+const exportFlags = () => ({ unit: unitOf(state.kind).label, admin: state.inclAdmin ? "included" : "left out",
+  dup: !state.dupDim ? "flagged only (data before version 1.0)" : state.noDup ? "left out (first report of each group kept)" : "included" });
 const ebgmPriorText = p => p ? `${ebgmPriorLabel(p, 0)}${p.exact ? "" : " (approximate)"}` : "";
 function exportCsv() {
   const rows = visibleRows(); if (!rows.length) return;
   const cols = [
-    { label: "product_code", get: () => state.pc }, { label: "brand_contains", get: () => state.brand }, { label: "problem_kind", get: () => KIND[state.kind].type },
+    { label: "product_code", get: () => state.pc }, { label: "brand_contains", get: () => state.brand },
+    { label: "brand_not_contains", get: () => state.brandNot }, { label: "model_contains", get: () => state.model }, { label: "problem_kind", get: () => KIND[state.kind].type },
     { label: "code", get: r => r.code }, { label: "term", get: r => r.term }, { label: "code_status", get: r => r.status },
     { label: "a", get: r => r.a }, { label: "b", get: r => r.b }, { label: "c", get: r => r.c }, { label: "d", get: r => r.d },
     { label: "expected", get: r => r.expected }, { label: "ror", get: r => r.ror }, { label: "ror_lo95", get: r => r.rorLo },
@@ -3814,9 +4231,12 @@ function exportCsv() {
     { label: "report_sources", get: () => state.src.join(" ") }, { label: "initial_only", get: () => state.initial ? 1 : 0 },
     { label: "summary_left_out", get: () => state.noSummary ? 1 : 0},
     { label: "signal_rule", get: () => CRITERIA[state.crit].label }, { label: "background", get: () => bgLabel(state.result.bg) },
+    { label: "share_of_problem_reports", get: r => limitShare(r) }, { label: "oe_limit", get: () => oeLimit(state.result.nP, state.result.N) },
+    { label: "unit", get: () => exportFlags().unit }, { label: "administrative_codes", get: () => exportFlags().admin },
+    { label: "possible_duplicates", get: () => exportFlags().dup },
     { label: "data_through", get: () => M.data_through },
   ];
-  download(new Blob([toCsv(rows, cols)], { type: "text/csv" }), `maude_${state.pc}${state.brand ? "_" + state.brand.replace(/[^A-Z0-9]+/g, "-").slice(0, 30) : ""}_${KIND[state.kind].type}_${state.y0}-${state.y1}.csv`);
+  download(new Blob([toCsv(rows, cols)], { type: "text/csv" }), `maude_${state.pc}${devTag()}_${KIND[state.kind].type}_${state.y0}-${state.y1}.csv`);
 }
 
 /* The selected problem: 2x2 table, measures, signal per year, newest reports */
@@ -3827,9 +4247,11 @@ async function openPair(code) {
   document.querySelectorAll("#resBody tr").forEach(tr => tr.classList.toggle("sel", +tr.dataset.code === code));
   drawVolcano();
   const d = $("drawer"), f = filters(), pc = state.pc, kind = state.kind, my = ++pairSeq, key = state.key;
-  const sig = CRITERIA[state.crit].test(r), who = state.brand ? `Brand “${esc(state.brand)}”` : pc;
+  const sig = CRITERIA[state.crit].test(r), who = devOn() ? esc(devLabel()) : pc;
   d.hidden = false;
-  d.innerHTML = `<div class="cardhead"><h2>${esc(r.term || `Code ${code}`)} <span class="codeinfo">${KIND[kind].type} problem ${code}</span></h2><button type="button" class="btn sm" id="closeDrawer">Close</button></div>
+  const grp = isConcept(kind), unitName = `${KIND[kind].type} ${grp ? unitOf(kind).noun : "problem"}`;
+  d.innerHTML = `<div class="cardhead"><h2>${esc(r.term || `Code ${code}`)} <span class="codeinfo">${esc(unitName)} ${grp && r.imdrf ? esc(r.imdrf) : code}</span></h2><button type="button" class="btn sm" id="closeDrawer">Close</button></div>
+    ${grp ? `<p class="note" id="pairMembers">The codes of this group…</p>` : ""}
     <p class="note" style="margin:.2rem 0">${sig ? '<span class="flag">Signal</span> by the selected rule.' : "Not a signal by the selected rule."}</p>
     <table class="two num" aria-label="2 by 2 table">
       <tr><th></th><th>This problem</th><th>Other problems</th></tr>
@@ -3845,15 +4267,21 @@ async function openPair(code) {
       <li><span>Fisher exact p (one-sided)</span><span>${fmtLnP(r.lnP)}</span></li>
       <li><span>q (FDR, ${NF.format(state.result.m)} codes)</span><span>${fmtLnP(r.lnQ)}</span></li>
       <li><span>Expected reports</span><span>${fmt(r.expected, 1)}</span></li>
-      <li><span>First year with signal (ROR rule)</span><span id="firstYear">${state.brand ? "–" : "…"}</span></li>
+      <li><span>Reports with this problem that are of this selection${limitShare(r) >= OE_NEAR ? " (EBGM and IC at or near the limit)" : ""}</span><span>${pctTxt(limitShare(r))}; limit N / nP ${fmt(oeLimit(state.result.nP, state.result.N), 2)}</span></li>
+      <li><span>First year with signal (ROR rule)</span><span id="firstYear">${devOn() ? "–" : "…"}</span></li>
     </ul>
     <div class="fig" id="fig-cumror"></div>
-    <p class="note" id="cumNote">${state.brand ? "" : "Line: lower 95% limit of the cumulative ROR, year by year. Dashed: ROR = 1. Amber points: the ROR rule holds."}</p>
+    <p class="note" id="cumNote">${devOn() ? "" : "Line: lower 95% limit of the cumulative ROR, year by year. Dashed: ROR = 1. Amber points: the ROR rule holds."}</p>
     <button type="button" class="btn sm" id="showReports">Show the newest reports</button>`;
   $("closeDrawer").onclick = () => { state.selected = null; d.hidden = true; $("pairReports").hidden = true; document.querySelectorAll("#resBody tr.sel").forEach(t => t.classList.remove("sel")); drawVolcano(); };
   $("showReports").onclick = () => pairReports(code);
+  if (grp) {  // version 1.0: the problem codes of the group, with their terms
+    memberCodes(kind, code).then(m => { if (my === pairSeq && $("pairMembers")) $("pairMembers").textContent = m.length
+      ? `${NF.format(m.length)} problem code${m.length === 1 ? "" : "s"} in this group (a report with any of them counts once): ${m.map(x => `${x.term || "No description"} (${x.code})`).join("; ")}.`
+      : "This group has no problem code in the dictionary."; }).catch(() => {});
+  }
   d.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-  if (state.brand) return;
+  if (devOn()) return;
   try {
     const g = state.result.g || null;
     const cr = await memo(`cum:${kind}:${code}:${g}`, () => cumulativeRor(q, f, pc, kind, code, g));
@@ -3862,6 +4290,9 @@ async function openPair(code) {
     setFig("cumror", `Signal over time: ${r.term || code}`, w => svgCumRor(cr.points, { w, label: "Lower 95% limit of the cumulative ROR per year" }));
   } catch (e) { console.error(e); }
 }
+/* Version 1.0: the problem codes of a group (IMDRF group or clinical concept), with their terms: [{ code, term }]. */
+const memberCodes = (kind, c) => memo(`members:${kind}:${c}`, () => q(`SELECT m.code::INTEGER AS code, d.TERM AS term FROM concept_map m
+    LEFT JOIN dict d ON d.CODE = m.code AND d.CODE_TYPE = '${KIND[kind].type}' WHERE m.kind = '${kind}' AND m.c = ${c | 0} ORDER BY m.code`));
 async function pairReports(code) {
   const box = $("pairReports"), key = state.key, kind = state.kind;
   box.hidden = false;
@@ -3870,7 +4301,9 @@ async function pairReports(code) {
   await work(async () => {
     let list;
     if (state.v06) {
-      const c = { ...cohortOf(), [kind === "pp" ? "ppc" : "dpc"]: code };
+      // version 1.0: for a group of codes, the reports with any of its codes
+      const codes = isConcept(kind) ? (await memberCodes(kind, code)).map(x => x.code) : code;
+      const c = { ...cohortOf(), [baseKind(kind) === "pp" ? "ppc" : "dpc"]: codes };
       list = (await cohortRows(q, c, schema(), hasText(), "newest", 100)).map(r => ({ k: r.report_key, received: r.date_received, ev: r.event, src: r.report_source,
         brand: r.brand, mfr: r.manufacturer || r.manufacturer_g1, pc: r.product_code }));
     } else {
@@ -3983,14 +4416,27 @@ RENDER.device = async key => {
   const ns = sum(rp.source);
   setFig("source", "Report source", w => svgHBars(rp.source.map(r => ({ label: SRC_LABEL[r.v] ?? r.v, v: r.n / ns, right: pctTxt(r.n / ns), title: `${SRC_LABEL[r.v] ?? r.v}: ${NF.format(r.n)}` })), { w, max: 1, labelW: 150, label: "Reports by report source" }));
   const no = sum(rp.occupation);
-  setFig("occ", "Reporter occupation", w => svgHBars(rp.occupation.slice(0, 8).map(r => ({ label: r.v === "NOT GIVEN" ? "Not given" : /^[0-9]+$/.test(r.v) ? `Code ${r.v}` : titleCase(r.v), v: r.n / no, right: pctTxt(r.n / no), color: r.v === "NOT GIVEN" ? "var(--unk)" : "var(--data1)", title: `${r.v}: ${NF.format(r.n)}` })), { w, labelW: 190, label: "Reports by reporter occupation (8 most frequent)" }));
+  setFig("occ", "Reporter occupation", w => svgHBars(rp.occupation.slice(0, 8).map(r => ({ label: r.v === "NOT GIVEN" ? "Not given" : /^[0-9]+$/.test(r.v) ? `Code ${r.v}` : r.v.length <= 4 ? r.v : titleCase(r.v), v: r.n / no, right: pctTxt(r.n / no), color: r.v === "NOT GIVEN" ? "var(--unk)" : "var(--data1)", title: `${r.v}: ${NF.format(r.n)}` })), { w, labelW: 190, label: "Reports by reporter occupation (8 most frequent)" }));
   const yes = (rp.hp.find(r => r.v === "Y") || { n: 0 }).n, nAns = yes + (rp.hp.find(r => r.v === "N") || { n: 0 }).n;
   $("hpLine").innerHTML = nAns ? `Health professional reporter: <strong>${pctTxt(yes / nAns, 0)}</strong> of the ${NF.format(nAns)} reports that answer this field (yes or no).` : "No report answers the health professional field.";
-  const nc = sum(geo.countries), cn = geo.countries.filter(r => r.code);
-  setFig("country", "Reporter country", w => svgHBars(cn.slice(0, 10).map(r => ({ label: countryName(r.code), v: r.n / nc, right: pctTxt(r.n / nc), title: `${countryName(r.code)}: ${NF.format(r.n)}` })), { w, labelW: 150, label: "Reports by reporter country (10 most frequent)" }));
+  // version 1.0 (point 6): FIPS 10-4 names first, and the codes of one country added together (UK and GB)
+  const nc = sum(geo.countries), cn = countriesByName(geo.countries.filter(r => r.code));
+  setFig("country", "Reporter country", w => svgHBars(cn.slice(0, 10).map(r => ({ label: r.name, v: r.n / nc, right: pctTxt(r.n / nc), title: `${r.name} (code ${r.codes.join(", ")}): ${NF.format(r.n)}` })), { w, labelW: 150, label: "Reports by reporter country (10 most frequent; FIPS 10-4 codes, ISO 3166 codes from 2019)" }));
   setFig("states", "Reports by U.S. state of the reporter", w => svgTileMap(geo.states, { w }));
   const off = geo.states.filter(r => !US_TILES[r.code]);
   const noC = (geo.countries.find(r => !r.code) || { n: 0 }).n;
+  // version 1.0 (comment 2 of the review): brands and model numbers
+  const bm = await memo("bm", () => brandModels(q, c, S, T));
+  if (!live(key)) throw STALE;
+  const pct = n => pctTxt(bm.total ? n / bm.total : null);
+  $("bmBrands").innerHTML = `<thead><tr><th scope="col">Brand</th><th scope="col">Reports</th><th scope="col">%</th><th scope="col">Model numbers</th></tr></thead><tbody>`
+    + bm.brands.map(r => `<tr><td class="txt">${esc(r.brand)}</td><td>${NF.format(r.n)}</td><td>${pct(r.n)}</td><td>${bm.hasModel ? NF.format(r.models) : "–"}</td></tr>`).join("") + "</tbody>";
+  $("bmPairs").innerHTML = `<thead><tr><th scope="col">Brand</th><th scope="col">Model number</th><th scope="col">Reports</th><th scope="col">%</th></tr></thead><tbody>`
+    + bm.pairs.map(r => `<tr><td class="txt">${esc(r.brand)}</td><td class="txt">${esc(r.model)}</td><td>${NF.format(r.n)}</td><td>${pct(r.n)}</td></tr>`).join("") + "</tbody>";
+  const ex = bm.inside[0];
+  $("bmNote").textContent = `${NF.format(bm.nBrands)} brand name${bm.nBrands === 1 ? "" : "s"}${bm.hasModel ? "" : "; the data have no model numbers"}. `
+    + (bm.inside.length ? `${NF.format(bm.inside.length)} pair${bm.inside.length === 1 ? "" : "s"} of brand names (among the ${NF.format(Math.min(BM_TOP, bm.nBrands))} with the most reports) have one name inside the other, for example “${ex.brand}” inside “${ex.in}”: `
+      + `“Brand contains ${ex.brand}” also selects the ${NF.format(ex.nIn)} reports of “${ex.in}”. Add “Brand does not contain”, or use the model number.` : "No brand name is inside another brand name.");
   $("geoNote").textContent = `No country given: ${NF.format(noC)} reports (${pctTxt(nc ? noC / nc : null)}).` + (off.length ? ` Other state codes (not on the map): ${off.slice(0, 8).map(r => `${r.code} ${NF.format(r.n)}`).join(", ")}.` : "");
 };
 
@@ -4013,8 +4459,8 @@ RENDER.trends = async key => {
   const tested = testedYears();
   const last = String(M.data_through).slice(0, 4);
   $("trNote").textContent = tested.length < state.y1 - state.y0 + 1
-    ? `The last year (${last}) is incomplete: data up to ${M.data_through}. The trend tests leave it out. Counts also change with recalls, lawsuits and code changes.`
-    : "Counts change with recalls, lawsuits and code changes.";
+    ? `Reporting trends: reports received per year, not how often events happened. The last year (${last}) is incomplete: data up to ${M.data_through}. The trend tests leave it out. Counts also change with recalls, lawsuits, rules for reporting (for example electronic reporting and summary reporting programs) and code changes.`
+    : "Reporting trends: reports received per year, not how often events happened. Counts change with recalls, lawsuits, rules for reporting (for example electronic reporting and summary reporting programs) and code changes.";
   const all = await yearly("all", "false");
   if (!live(key)) throw STALE;
   const years = all.map(r => r.y), idx = years.map((y, i) => tested.includes(y) ? i : -1).filter(i => i >= 0);
@@ -4128,18 +4574,22 @@ RENDER.reports = async key => {
   $("cPcs").value = state.pc; $("cD0").value = `${state.y0}-01-01`; $("cD1").value = `${state.y1}-12-31`;
   $("cSrc").querySelectorAll("input").forEach(i => { i.checked = state.src.includes(i.value); });
   $("cInitial").checked = state.initial && !$("cInitial").disabled; $("cNoSummary").checked = state.noSummary && !$("cNoSummary").disabled;
-  $("cBrand").value = state.brand; $("cMfr").value = ""; $("cDpc").value = ""; $("cPpc").value = ""; $("cIncl").value = ""; $("cExcl").value = "";
+  $("cNoDupL").hidden = !state.dupDim; $("cNoDup").checked = state.dupDim && state.noDup;  // version 1.0: the deduplicated reports only
+  $("cBrand").value = state.brand; $("cBrandNot").value = state.brandNot; $("cModel").value = state.model; $("cMfr").value = ""; $("cDpc").value = ""; $("cPpc").value = ""; $("cIncl").value = ""; $("cExcl").value = "";
   $("cResult").hidden = true; state.cohort = null;
   cohortNote();
 };
 function readCohort() {
   const int = v => (v === "" || v === null) ? null : Math.trunc(+v);
+  // version 1.0: one or more problem codes, separated by commas or spaces (any of them); null without a code
+  const codeList = v => { const a = String(v || "").split(/[\s,;]+/).map(x => Math.trunc(+x)).filter(x => Number.isInteger(x) && x > 0);
+    return !a.length ? null : a.length === 1 ? a[0] : [...new Set(a)]; };
   return {
     pcs: pcList($("cPcs").value), d0: isoDate($("cD0").value), d1: isoDate($("cD1").value), ev: [...state.ev],
     src: [...$("cSrc").querySelectorAll("input:checked")].map(i => i.value),
-    initial: $("cInitial").checked, noSummary: $("cNoSummary").checked,
-    brand: $("cBrand").value.trim(), mfr: $("cMfr").value.trim(),
-    dpc: int($("cDpc").value), ppc: int($("cPpc").value),
+    initial: $("cInitial").checked, noSummary: $("cNoSummary").checked, noDup: state.dupDim && $("cNoDup").checked,
+    brand: $("cBrand").value.trim(), brandNot: $("cBrandNot").value.trim(), model: $("cModel").value.trim(), mfr: $("cMfr").value.trim(),
+    dpc: codeList($("cDpc").value), ppc: codeList($("cPpc").value),
     incl: hasText() ? termList($("cIncl").value) : [], excl: hasText() ? termList($("cExcl").value) : [],
   };
 }
@@ -4156,7 +4606,8 @@ function cohortDefinition() {
             "Dates are dates received by the FDA. Event types are as reported (death, injury, malfunction, other, no answer).",
             "Narrative filters: a report is included if any of its narrative texts contains any term (case-insensitive substring); left out if any text contains any excluded term.",
             "Random sample: the reports with the smallest fixed hash of the report key; the same data version gives the same sample.",
-            "Possible duplicates: same product code, event date, manufacturer and brand."],
+            state.dupDim ? `Possible duplicates: ${DUP_RULE_V10}; dup_group = the report key of the first report of the group, dup_extra = a later report of the group${c.noDup ? " (left out of this selection)" : ""}.`
+              : `Possible duplicates: ${DUP_RULE_TEXT} (flagged, not removed).`],
     sql_where: cohortWhere(c, schema(), hasText()),
   };
 }
@@ -4197,7 +4648,7 @@ function renderCohort(sum, rows) {
     <td class="date">${esc(r.date_received)}</td><td>${ev[r.event] || ""}</td><td>${esc(src[r.report_source] || r.report_source || "")}</td>
     <td class="txt">${esc(r.brand)}</td><td class="txt">${esc(r.manufacturer || r.manufacturer_g1)}</td><td class="txt">${esc(r.model)}</td>
     <td class="txt">${esc(r.device_problem_terms || r.device_problem_codes)}</td>
-    <td>${r.dup_group ? `<span class="dup">group ${r.dup_group}</span>` : ""}</td></tr>`).join("")
+    <td>${r.dup_group ? `<span class="dup">${state.dupDim ? (r.dup_extra ? `repeats ${r.dup_group}` : "first of a group") : `group ${r.dup_group}`}</span>` : ""}</td></tr>`).join("")
     || `<tr><td colspan="9" class="empty">No report matches the filters.</td></tr>`;
 }
 function download(blob, name) {
@@ -4205,15 +4656,19 @@ function download(blob, name) {
   a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
+const REVIEW_COLUMNS = ["review1_relatedness", "review1_problem_confirmed", "review1_notes", "review2_relatedness", "review2_problem_confirmed",
+  "review2_notes", "consensus_relatedness", "consensus_notes"];
 async function exportRows(c, mode, n, withText, name) {
   await work(async () => {
     const rows = await cohortRows(q, c, schema(), hasText(), mode, mode === "sample" ? n : 0, Boolean(M.tables.classification));
     const text = withText ? await cohortText(q) : new Map();
     const extra = withText ? ["event_description", "manufacturer_evaluation", "manufacturer_narrative", "other_text"] : [];
     const keys = rows.length ? Object.keys(rows[0]) : [];
+    // version 1.0 (review of 2026-10-16): files with narratives are ready for a case review by two reviewers (empty columns)
+    const review = withText ? REVIEW_COLUMNS.map(k => ({ label: k, get: () => "" })) : [];
     const cols = [...keys.map(k => ({ label: k, get: r => r[k] })),
                   ...extra.map(k => ({ label: k, get: r => text.get(r.report_key)?.[k] ?? "" })),
-                  { label: "data_through", get: () => M.data_through }];
+                  ...review, { label: "data_through", get: () => M.data_through }];
     download(new Blob(["﻿" + toCsv(rows, cols)], { type: "text/csv;charset=utf-8" }), name);
   }, withText ? "Reading the narratives…" : "Preparing the file…");
 }
@@ -4236,13 +4691,15 @@ function compareCols() {
     { label: "b_x", get: r => r.xb }, { label: "b_n", get: r => r.nb }, { label: "b_share", get: r => r.b[0] }, { label: "b_lo95", get: r => r.b[1] }, { label: "b_hi95", get: r => r.b[2] },
     { label: "difference", get: r => r.cmp?.d }, { label: "diff_lo95", get: r => r.cmp?.lo }, { label: "diff_hi95", get: r => r.cmp?.hi },
     { label: "test", get: r => r.cmp?.test }, { label: "p", get: r => r.cmp?.p },
+    { label: "ror_a_vs_b", get: r => r.or?.ror }, { label: "ror_lo95", get: r => r.or?.rorLo }, { label: "ror_hi95", get: r => r.or?.rorHi },
     { label: "cohort_a", get: () => JSON.stringify(state.cmpLast.A) }, { label: "cohort_b", get: () => JSON.stringify(state.cmpLast.B) }, { label: "data_through", get: () => M.data_through }];
 }
 async function comparePreset(kind) {
   const half = Math.floor((state.y0 + state.y1) / 2);
-  const set = (p, pcs, brand, y0, y1) => { $(p + "Pcs").value = pcs; $(p + "Brand").value = brand; $(p + "Y0").value = y0; $(p + "Y1").value = y1; };
-  if (kind === "periods") { set("a", state.pc, state.brand, state.y0, half); set("b", state.pc, state.brand, Math.min(half + 1, state.y1), state.y1); }
-  if (kind === "types") { set("a", state.pc, state.brand, state.y0, state.y1); set("b", "", "", state.y0, state.y1); $("bPcs").focus(); $("cmpNote").textContent = "Type the product code of cohort B, then select Compare."; return; }
+  const set = (p, pcs, brand, y0, y1, bn = "", mo = "") => { $(p + "Pcs").value = pcs; $(p + "Brand").value = brand; $(p + "Y0").value = y0; $(p + "Y1").value = y1;
+    $(p + "BrandNot").value = bn; $(p + "Model").value = mo; };
+  if (kind === "periods") { set("a", state.pc, state.brand, state.y0, half, state.brandNot, state.model); set("b", state.pc, state.brand, Math.min(half + 1, state.y1), state.y1, state.brandNot, state.model); }
+  if (kind === "types") { set("a", state.pc, state.brand, state.y0, state.y1, state.brandNot, state.model); set("b", "", "", state.y0, state.y1); $("bPcs").focus(); $("cmpNote").textContent = "Type the product code of cohort B, then select Compare."; return; }
   if (kind === "brands") {
     let rows = [];
     try {
@@ -4255,28 +4712,37 @@ async function comparePreset(kind) {
   }
   runCompare();
 }
-const readSide = p => ({ pcs: pcList($(p + "Pcs").value), brand: $(p + "Brand").value.trim(), y0: +$(p + "Y0").value, y1: +$(p + "Y1").value });
+const readSide = p => ({ pcs: pcList($(p + "Pcs").value), brand: $(p + "Brand").value.trim(), brandNot: $(p + "BrandNot").value.trim(),
+  model: $(p + "Model").value.trim(), y0: +$(p + "Y0").value, y1: +$(p + "Y1").value });
 async function runCompare() {
   const A = readSide("a"), B = readSide("b"), key = state.key;
   if (!A.pcs.length || !B.pcs.length) { $("cmpNote").textContent = "Type a product code for each cohort."; return; }
   if (A.y0 > A.y1 || B.y0 > B.y1) { $("cmpNote").textContent = "The first year must not be after the last year."; return; }
   const base = cohortOf(), S = schema(), T = hasText();
   const cA = { ...base, ...A, y0: A.y0, y1: A.y1 }, cB = { ...base, ...B };
+  const excl = $("cmpExcl").checked;  // version 1.0 (comment 2 of the review): cohorts that do not overlap
+  if (excl) cB.notIn = cA;
   await work(async () => {
+    // version 1.0 (comment 2): the reports that the two cohorts share (with "B without A": none)
+    const shared = await cohortOverlap(q, cA, cB, S, T);
     const top = await problemOutcomes(q, cA, S, T, "dp", 3);
     const codes = top.map(r => r.code), terms = new Map(top.map(r => [r.code, r.term || String(r.code)]));
     const [mA, mB] = [await cohortMeasures(q, cA, S, T, codes), await cohortMeasures(q, cB, S, T, codes)];
     if (!live(key)) throw STALE;
     const rows = compareRows(mA, mB, codes, terms);
-    state.cmpLast = { A, B, mA, mB, rows };
+    state.cmpLast = { A, B, mA, mB, rows, shared, excl };
     $("cmpResult").hidden = false;
-    const nm = s => `${s.pcs.join(", ")}${s.brand ? ` “${s.brand}”` : ""}, ${s.y0}–${s.y1}`;
-    $("cmpNote").textContent = `A: ${nm(A)}, ${NF.format(mA.n)} reports. B: ${nm(B)}, ${NF.format(mB.n)} reports.`;
+    const nm = s => `${s.pcs.join(", ")}${devFilterText(s) ? ` (${devFilterText(s)})` : ""}, ${s.y0}–${s.y1}`;
+    $("cmpNote").textContent = `A: ${nm(A)}, ${NF.format(mA.n)} reports. B: ${nm(B)}${excl ? ", without the reports of A" : ""}, ${NF.format(mB.n)} reports.`;
+    $("cmpOverlap").hidden = !shared;
+    $("cmpOverlap").textContent = shared ? `The cohorts share ${NF.format(shared)} reports (${pctTxt(mA.n ? shared / mA.n : null)} of A, ${pctTxt(mB.n ? shared / mB.n : null)} of B), `
+      + "so they are not separate groups and the tests are not valid for them. Select “Cohort B without the reports of cohort A”, or change the filters (for example “Brand does not contain”)." : "";
     const ci = p => p[0] === null ? "–" : `${fmt(100 * p[0])} (${fmt(100 * p[1])}–${fmt(100 * p[2])})`;
-    $("cmpTable").innerHTML = `<thead><tr><th scope="col">Measure</th><th scope="col">Cohort A, % (95% CI)</th><th scope="col">Cohort B, % (95% CI)</th><th scope="col">Difference, points (95% CI)</th><th scope="col">p</th><th scope="col" class="x">Test</th></tr></thead><tbody>`
+    $("cmpTable").innerHTML = `<thead><tr><th scope="col">Measure</th><th scope="col">Cohort A, % (95% CI)</th><th scope="col">Cohort B, % (95% CI)</th><th scope="col">Difference, points (95% CI)</th><th scope="col">p</th><th scope="col" class="x">Test</th><th scope="col" title="Odds of the measure in cohort A against cohort B (reporting odds ratio)">ROR, A vs B (95% CI)</th></tr></thead><tbody>`
       + rows.map(r => `<tr><td>${esc(r.label)}<br><span class="note">${NF.format(r.xa)} of ${NF.format(r.na)} vs ${NF.format(r.xb)} of ${NF.format(r.nb)} ${r.base}</span></td>
         <td>${ci(r.a)}</td><td>${ci(r.b)}</td><td>${r.cmp && Number.isFinite(r.cmp.d) ? `${fmt(100 * r.cmp.d, 2)} (${fmt(100 * r.cmp.lo, 2)} to ${fmt(100 * r.cmp.hi, 2)})` : "–"}</td>
-        <td>${r.cmp ? fmtP(r.cmp.p) : "–"}</td><td class="x">${r.cmp ? r.cmp.test : ""}</td></tr>`).join("") + "</tbody>";
+        <td>${r.cmp ? fmtP(r.cmp.p) : "–"}</td><td class="x">${r.cmp ? r.cmp.test : ""}</td>
+        <td>${r.or ? `${fmt(r.or.ror)} (${fmt(r.or.rorLo)}–${fmt(r.or.rorHi)})` : "–"}</td></tr>`).join("") + "</tbody>";
     setFig("dots", "Shares in cohort A and cohort B", w => svgDotPlot(rows.map(r => ({ label: r.label, a: r.a, b: r.b })), { w, nameA: "Cohort A", nameB: "Cohort B" }));
   }, "Comparing the cohorts…");
 }
@@ -4286,20 +4752,19 @@ RENDER.compare = async key => {
     state.cmpKey = key;
     const half = Math.floor((state.y0 + state.y1) / 2);
     $("aPcs").value = $("bPcs").value = state.pc; $("aBrand").value = $("bBrand").value = state.brand;
+    $("aBrandNot").value = $("bBrandNot").value = state.brandNot; $("aModel").value = $("bModel").value = state.model; $("cmpExcl").checked = false;
     $("aY0").value = state.y0; $("aY1").value = half; $("bY0").value = Math.min(half + 1, state.y1); $("bY1").value = state.y1;
     $("cmpNote").textContent = "The event types and the more filters at the top apply to both cohorts. The form starts with two periods; select Compare, or start from a preset.";
   } else if (state.cmpLast) {
     setFig("dots", "Shares in cohort A and cohort B", w => svgDotPlot(state.cmpLast.rows.map(r => ({ label: r.label, a: r.a, b: r.b })), { w }));
   }
-  const sens = await sensitivity();
-  if (!live(key)) throw STALE;
-  drawSensitivity(sens);
 };
-const sensitivity = () => memo(`sens:${state.kind}:${state.crit}:${state.bg}`, async () => {
+const sensKey = () => `sens:${state.kind}:${state.crit}:${bgKey()}:${state.inclAdmin ? "a" : ""}`;
+const sensitivity = () => memo(sensKey(), async () => {
   const c = await analysisCohort(), S = schema(), T = hasText();
   const desc = await sensitivityTable(q, c, S, T);
   const b = await bgUse(), g = b ? b.g : null;
-  const sig = state.dims ? await sensitivitySignals(q, c, S, T, filters(), state.pc, state.kind, state.crit, Boolean(state.brand), ebgmNow(state.kind, g), g) : null;
+  const sig = state.dims ? await sensitivitySignals(q, c, S, T, filters(), state.pc, state.kind, state.crit, devOn(), ebgmNow(state.kind, g), g) : null;
   const res = await sigTable(state.kind);
   return { desc, sig, kind: state.kind, crit: state.crit, terms: new Map(res.rows.map(r => [r.code, r.term])) };
 });
@@ -4353,9 +4818,11 @@ const reportFlow = () => memo("flow", async () => {
     if (state.initial) steps.push(["Initial reports only", { ...steps.at(-1)[1], initial: true }]);
     if (state.noSummary) steps.push(["Summary reports left out", { ...steps.at(-1)[1], noSummary: true }]);
   }
+  // version 1.0: the possible duplicates after the first report of each group (count-table dimension dup)
+  if (state.dupDim && state.noDup) steps.push(["Possible duplicates left out (the first report of each group kept)", { ...steps.at(-1)[1], hasDup: true, noDup: true }]);
   const out = [];
   for (const [label, ff] of steps) out.push({ label, n: (await productFacts(q, ff, pc)).total });
-  if (state.brand && state.v06) out.push({ label: `Brand contains “${state.brand}”`, n: (await basics()).total });
+  if (devOn()) out.push({ label: state.brand && !state.brandNot && !state.model ? `Brand contains “${state.brand}”` : `Device filter: ${devText()}`, n: (await basics()).total });
   if (state.v06) {
     const pf = await profile();
     out.push({ label: "With a patient record (base of the patient measures)", n: pf.n_patient, sub: true });
@@ -4364,20 +4831,31 @@ const reportFlow = () => memo("flow", async () => {
   out.push({ label: `With at least one ${KIND[state.kind].type} problem code (signal analysis)`, n: sp.nP, sub: true });
   return { steps: out, f };
 });
-function methodsSpec(res, n) {
+function methodsSpec(res, n, dq = null) {  // dq: the measured limitations of the selection (version 1.0; selectionLimits)
   const f = filters();
   const events = state.ev.map(e => EVENTS.find(x => x.id === e).label.toLowerCase());
   const filt = [state.dims && state.src.length < SOURCE_IDS.length ? `report sources ${listText(state.src.map(x => SOURCES.find(s => s.id === x).label.toLowerCase()))}` : "",
     state.dims && state.initial ? "only initial reports" : "", state.dims && state.noSummary ? "without summary reports" : ""].filter(Boolean);
-  const scen = state.dims ? ["with initial reports only", "without summary reports", "with manufacturer reports only", "with user facility, distributor and voluntary reports only", "with the reports received from 2010"] : [];
+  const scen = state.dims ? ["with initial reports only", "without summary reports", "with manufacturer reports only", "with user facility, distributor and voluntary reports only", "with the reports received from 2010",
+    ...(state.dupDim ? [state.noDup ? "with the possible duplicates included" : "without the possible duplicates"] : [])] : [];
   const rule = { ror: "a lower 95% confidence limit of the ROR above 1 with at least 3 reports", prr: "a PRR of 2 or more with a chi-square of 4 or more and at least 3 reports (Evans criteria)",
     ic: "an IC025 above 0", fdr: `a Benjamini-Hochberg q-value below ${FDR_LEVEL} with at least 3 reports`, ebgm: `an EB05 above ${EBGM_LEVEL}` }[state.crit];
   const ek = res.prior && M.ebgm && (res.g ? M.ebgm.bg && M.ebgm.bg[res.g] && M.ebgm.bg[res.g][state.kind] : M.ebgm[state.kind]);
   const ebgm = ek ? { ...ebgmPick(res.prior), exact: res.prior.exact, cells: ek.cells, y0: M.ebgm.y0, y1: M.ebgm.y1, bg: Boolean(res.g) } : null;
   return { version: APP_VERSION, dataTag: dataTag(), dataThrough: M.data_through, built: M.created, pc: state.pc, name: productOf(state.pc)?.name || "no device name",
-    brand: state.brand, y0: f.y0, y1: f.y1, events, allEvents: state.ev.length === EVENT_IDS.length, filters: filt, n, kindType: KIND[state.kind].type, N: res.N, nP: res.nP, m: res.m, ruleText: rule, scenarios: scen, ebgm,
+    brand: state.brand, brandNot: state.brandNot, model: state.model, y0: f.y0, y1: f.y1, events, allEvents: state.ev.length === EVENT_IDS.length, filters: filt, n, kindType: KIND[state.kind].type, N: res.N, nP: res.nP, m: res.m, ruleText: rule, scenarios: scen, ebgm,
     bg: res.bg ? { id: res.bg.id, label: res.bg.label, n_codes: res.bg.n_codes } : null,
-    timelyText: tlLast ? timelyMethods() : "" };
+    timelyText: tlLast ? timelyMethods() : "", dq,
+    // version 1.0: duplicates (point 1), unit (point 3), administrative codes (point 4)
+    dupNew: state.dupDim, noDup: state.dupDim && state.noDup, unit: unitOf(state.kind), inclAdmin: state.inclAdmin, nAdmin: res.nAdmin || 0 };
+}
+/* Version 1.0 (review of 2026-10-16): the numbers of selectionLimits, from the profile and the manufacturer groups of the selection. */
+async function limitsData() {
+  if (!state.v06) return null;
+  const c = await analysisCohort(), pf = await profile(), mm = await memo("mfr", () => manufacturerMix(q, c, schema(), hasText()));
+  const named = mm.rows.filter(r => r.name), total = mm.rows.reduce((t, r) => t + r.n, 0);
+  return { n: pf.n, dup: pf.dup_reports, dupExtra: pf.dup_extra, nPatient: pf.n_patient, sexNA: pf.n_patient - pf.female - pf.male, retired: pf.retired_codes,
+           summary: pf.summary_reports, top: named.length ? { name: titleCase(named[0].name), share: total ? named[0].n / total : null } : null, hhi: mm.hhi };
 }
 function timelyMethods() {
   const t = tlLast.t, src = t.src.map(x => SOURCES.find(s => s.id === x).label.toLowerCase());
@@ -4391,13 +4869,13 @@ function timelyMethods() {
 }
 RENDER.methods = async key => {
   document.querySelectorAll("[data-mk]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mk === state.mk)));
-  const [b, res] = [await basics(), await sigTable(state.kind)];
+  const [b, res, dq] = [await basics(), await sigTable(state.kind), await limitsData()];
   if (!live(key)) throw STALE;
-  state.mtParas = methodsText(state.mk === "cohort" && !state.v06 ? "signals" : state.mk, methodsSpec(res, b.total));
+  state.mtParas = methodsText(state.mk === "cohort" && !state.v06 ? "signals" : state.mk, methodsSpec(res, b.total, dq));
   $("mtText").innerHTML = state.mtParas.map(t => `<p>${esc(t)}</p>`).join("");
   $("repLink").textContent = location.href;
   const s = signalSql(filters(), state.pc, state.kind, res.g);
-  $("repSql").textContent = state.brand
+  $("repSql").textContent = devOn()
     ? `-- The selection (report table), then the problem codes of its reports:\nSELECT ... FROM reports\nWHERE ${cohortWhere(cohortOf(), schema(), hasText())}\n\n-- The other cells of the 2x2 tables:\n${s.N}`
     : `${s.pairs};\n\n${s.nP};\n\n${s.N};`;
   $("citeText").textContent = citeText();
@@ -4423,7 +4901,8 @@ async function analysisTables() {
     add("Sex: female", pf.female, pf.n_patient, "reports with a patient record"); add("Sex: male", pf.male, pf.n_patient, "reports with a patient record");
     add("Sex: other or unknown", pf.sex_other, pf.n_patient, "reports with a patient record"); add("Sex: not given", pf.sex_missing, pf.n_patient, "reports with a patient record");
     add("Date of event missing", pf.no_event_date, pf.n, "all reports"); add("Summary reports", pf.summary_reports, pf.n, "all reports");
-    add("Possible duplicate reports", pf.dup_reports, pf.n, "all reports"); add("Retired device problem codes", pf.retired_codes, pf.n, "all reports");
+    if (state.dupDim) add(`Possible duplicates after the first report${state.noDup ? " (left out)" : ""}`, pf.dup_extra, pf.n + (state.noDup ? pf.dup_extra : 0), "all reports before this step");
+    else add("Possible duplicate reports", pf.dup_reports, pf.n, "all reports"); add("Retired device problem codes", pf.retired_codes, pf.n, "all reports");
     sheets.push({ name: "Characteristics", rows: ch });
     const as = await memo("agesex", () => ageSexTable(q, c, S, T));
     const po = await memo("po:dp", () => problemOutcomes(q, c, S, T, "dp", 10));
@@ -4447,7 +4926,7 @@ async function analysisTables() {
       { name: "Manufacturers", rows: [["Manufacturer group", "Reports", "Percent"], ...mm.rows.map(r => [r.name || "Not given", r.n, 100 * r.n / mm.rows.reduce((s, x) => s + x.n, 0)]), ["Herfindahl-Hirschman index", mm.hhi, null]] },
       { name: "Reporters", rows: [["Field", "Value", "Reports"], ...rp.source.map(r => ["Report source", SRC_LABEL[r.v] ?? r.v, r.n]), ...rp.occupation.map(r => ["Reporter occupation", r.v, r.n]),
         ...rp.hp.map(r => ["Health professional", r.v || "Not given", r.n])] },
-      { name: "Countries", rows: [["Code", "Country", "Reports"], ...geo.countries.map(r => [r.code, countryName(r.code), r.n])] },
+      { name: "Countries", rows: [["Code", "Country (FIPS 10-4 first; see Methods)", "Reports"], ...geo.countries.map(r => [r.code, countryName(r.code), r.n])] },
       { name: "US states", rows: [["State", "Reports"], ...geo.states.map(r => [r.code, r.n])] },
       { name: "Per year", rows: [["Year", "Reports", "Reports with a patient record", "Death (event type or outcome)", "Serious outcome", "Complete year (trend tests)"],
         ...all.map((r, i) => [r.y, r.n, r.n_patient, dy[i].x, se[i].x, testedYears().includes(r.y) ? "yes" : "no"])] },
@@ -4476,7 +4955,8 @@ function definitionsSheet(bg = state.result?.bg) {  // bg (version 0.9): the bac
   const p = productOf(state.pc);
   return { name: "Definitions", rows: [["Item", "Value"],
     ["Tool", `MAUDE Signal Explorer ${APP_VERSION}`], ["Data version", dataTag()], ["Data: reports received up to", M.data_through], ["Data built", M.created],
-    ["Product code", state.pc], ["Device name", p?.name || ""], ["Brand contains", state.brand], ["Years received", `${state.y0}-${state.y1}`],
+    ["Product code", state.pc], ["Device name", p?.name || ""], ["Brand contains", state.brand],
+    ["Brand does not contain", state.brandNot], ["Model number contains", state.model], ["Years received", `${state.y0}-${state.y1}`],
     ["Event types", state.ev.map(e => EVENTS.find(x => x.id === e).label).join(", ")],
     ["Report sources", state.src.map(x => SOURCES.find(s => s.id === x).label).join(", ")], ["Initial reports only", state.initial ? "yes" : "no"],
     ["Summary reports left out", state.noSummary ? "yes" : "no"], ["Signal rule", CRITERIA[state.crit].label],
@@ -4485,13 +4965,18 @@ function definitionsSheet(bg = state.result?.bg) {  // bg (version 0.9): the bac
     ["2x2 table", "a: reports of the selection with the problem code; b: reports of the selection with another problem code of the same kind; c: other reports of the comparison background with the problem code; d: all other reports of the comparison background. Only reports with at least one problem code of the kind. Background: all other device types, or (version 0.9) the other product codes of the same medical specialty or the same device class of the FDA product classification."],
     ["ROR", "Reporting odds ratio with 95% CI (log method); 0.5 in each cell if a cell is 0."], ["PRR", "Proportional reporting ratio with 95% CI and the Yates chi-square."],
     ["IC025", "Lower limit of the information component (BCPNN, simplified formula)."],
+    ["Expected count and its limit", "E = nP x nE / N (the selection is in nE and N). So a/E is at most N/nP for every problem, and EBGM and IC are limited by N/nP; ROR and PRR are not. share_of_problem_reports = a / (a + c): near 1, EBGM and IC are at or near the limit."],
     ["EBGM, EB05, EB95", "Empirical Bayes geometric mean of the gamma-Poisson shrinker with two gamma components (DuMouchel 1999) and its 5% and 95% posterior limits; prior fitted on all product code x problem code cells of all reports (with a comparison background: of the product codes of the background group), with the likelihood of the mixture conditioned on at least one report. EBGM rule: EB05 above 2."],
     ["p and q", "One-sided Fisher exact test; Benjamini-Hochberg q over all problem codes of the table (text, because some values are below 1e-308)."],
     ["Patient measures", "Reports with a patient record; age and sex of the first patient; a report has an outcome if any of its patients has it."],
     ["Serious outcome", "Death, life-threatening, hospitalization, disability, congenital anomaly or required intervention."],
     ["Intervals", "95% Wilson score intervals; differences with the Newcombe hybrid score interval."],
     ["Trend tests", `Mann-Kendall (counts) and Cochran-Armitage (shares) over complete years; data up to ${M.data_through}.`],
-    ["Possible duplicates", "Same product code, date of event, manufacturer and brand."],
+    ["Possible duplicates", state.dupDim ? `Reports with ${DUP_RULE_V10}. ${state.noDup ? "The reports after the first report of each group are left out of every analysis (the default)." : "Flagged, not removed (the user included them)."}`
+      : `Reports with ${DUP_RULE_TEXT}; flagged, not removed (the signal tables use all reports).`],
+    ["Administrative codes", "Problem codes that say there is no problem, no information or no code (IMDRF A24 to A27 and E24, and the FDA terms Normal, Unknown, Other, No Known Impact and others), planned actions (Elective removal, Elective replacement) and codes entered in the other field. "
+      + (state.inclAdmin ? "Included in the signal table (the user's choice)." : "Left out of the signal table, the ranking and the Benjamini-Hochberg family (the default).")],
+    ["Unit of the signal table", `${unitOf(state.kind).label}${isConcept(state.kind) ? ": a report counts once per group; the denominators are the reports with at least one problem code of the kind" : ""}.`],
     ["Link", location.href]] };
 }
 const SHEET_CSV = rows => "﻿" + rows.map(r => r.map(v => { const s = v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v)) ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(",")).join("\n");
@@ -4499,7 +4984,7 @@ async function downloadAll(kind) {
   if (kind === "json") {
     const f = filters(), b = await bgUse();
     return download(new Blob([JSON.stringify({ tool: "MAUDE Signal Explorer", version: APP_VERSION, data_version: dataTag(), data_through: M.data_through, data_built: M.created,
-      link: location.href, selection: { product_code: state.pc, brand_contains: state.brand, ...f, kind: KIND[state.kind].type, signal_rule: state.crit, signal_rule_label: CRITERIA[state.crit].label,
+      link: location.href, selection: { product_code: state.pc, brand_contains: state.brand, brand_not_contains: state.brandNot, model_contains: state.model, ...f, kind: KIND[state.kind].type, unit: unitOf(state.kind).id, administrative_codes: exportFlags().admin, possible_duplicates: exportFlags().dup, signal_rule: state.crit, signal_rule_label: CRITERIA[state.crit].label,
         background: b ? { choice: b.id, group: b.g, label: b.label, product_codes: b.n_codes } : { choice: "all" } },
       sql: { signal_table: signalSql(f, state.pc, state.kind, b ? b.g : null), report_table_where: state.v06 ? cohortWhere(cohortOf(), schema(), hasText()) : null },
       definitions: Object.fromEntries((r => r.slice(r.findIndex(x => x[0] === "2x2 table")))(definitionsSheet(b).rows)) }, null, 2)], { type: "application/json" }), `${figFile("definition")}.json`);
