@@ -447,7 +447,7 @@ body.working #status:not(.err) #stMsg::before { content: ""; display: inline-blo
     <div class="chips" id="fSrc" role="group" aria-label="Report source"></div>
     <label class="check" title="Type of report includes I (initial). In the MAUDE files almost every report has I in its type of report (I, I,F, I,F,F and so on), so this filter leaves out very few reports. Reports with a follow-up (F) stay in."><input type="checkbox" id="fInitial"> Initial reports only</label>
     <label class="check"><input type="checkbox" id="fNoSummary"> Leave out summary reports</label>
-    <label class="check" id="fNoDupL" hidden title="Version 1.0: a report is a possible duplicate when an earlier report of the same product code has the same date of event, manufacturer and brand, the same patient age and sex or another report source, and almost the same narrative (word overlap 0.8 or more). On: the first report of each group stays, the later ones are left out of every tab and of the signal tables."><input type="checkbox" id="fNoDup" checked> Leave out possible duplicates (keep the first report)</label>
+    <label class="check" id="fNoDupL" hidden title="Version 1.0: a report is a possible duplicate when an earlier report of the same product code has the same date of event, manufacturer and brand, the same patient age and sex or another report source, and almost the same narrative (word overlap 0.8 or more); reports in a group of more than 200 reports with the same product code, date of event, manufacturer and brand are not compared. On: the first report of each group stays, the later ones are left out of every tab and of the signal tables."><input type="checkbox" id="fNoDup" checked> Leave out possible duplicates (keep the first report)</label>
     <span class="devf" role="group" aria-label="Device filter">
       <label class="f">Brand contains<input id="fBrand" type="text" autocomplete="off" spellcheck="false"></label>
       <label class="f">Brand does not contain<input id="fBrandNot" type="text" autocomplete="off" spellcheck="false"></label>
@@ -2085,13 +2085,17 @@ async function dupCounts(q, c, S, hasText) {
   const R = new Set(S.map(x => x[0]));
   // version 1.0: dup_extra = reports after the first of their group (the reports that "leave out possible duplicates"
   // removes); data before 1.0: every report of a group
+  // version 1.0 (2026-10-17, problem 109): dup_unchecked = reports in a key group of more than manifest.duplicates.max_group
+  // reports, which the rule of the pipeline does not compare (0 for data without the column)
+  const un = `${R.has("dup_unchecked") ? "count(*) FILTER (WHERE dup_unchecked)" : "0"}::DOUBLE AS dup_unchecked`;
   if (c.table) return (await q(`SELECT count(dup_group)::DOUBLE AS dup_reports, count(DISTINCT dup_group)::DOUBLE AS dup_groups,
-      count(*) FILTER (WHERE dup_extra)::DOUBLE AS dup_extra FROM ${tableName(c.table)}`))[0];
+      count(*) FILTER (WHERE dup_extra)::DOUBLE AS dup_extra, ${un} FROM ${tableName(c.table)}`))[0];
   if (R.has("dup_extra")) return (await q(`SELECT count(dup_group)::DOUBLE AS dup_reports, count(DISTINCT dup_group)::DOUBLE AS dup_groups,
-      count(*) FILTER (WHERE dup_extra)::DOUBLE AS dup_extra FROM (${cohortBase(c, S, hasText)})`))[0];
-  if (!R.has("date_of_event")) return { dup_reports: 0, dup_groups: 0, dup_extra: 0 };
+      count(*) FILTER (WHERE dup_extra)::DOUBLE AS dup_extra, ${un} FROM (${cohortBase(c, S, hasText)})`))[0];
+  if (!R.has("date_of_event")) return { dup_reports: 0, dup_groups: 0, dup_extra: 0, dup_unchecked: 0 };
   const { cols, keyOf } = dupKey(S);
-  return (await q(`SELECT coalesce(sum(n), 0)::DOUBLE AS dup_reports, count(*)::DOUBLE AS dup_groups, coalesce(sum(n), 0)::DOUBLE AS dup_extra
+  return (await q(`SELECT coalesce(sum(n), 0)::DOUBLE AS dup_reports, count(*)::DOUBLE AS dup_groups, coalesce(sum(n), 0)::DOUBLE AS dup_extra,
+      0::DOUBLE AS dup_unchecked
     FROM (SELECT count(*) AS n FROM (${cohortBase(c, S, hasText)}) WHERE date_of_event IS NOT NULL GROUP BY ${cols.map(x => keyOf(x)).join(", ")} HAVING count(*) > 1)`))[0];
 }
 const tableName = t => { if (!/^[a-z_][a-z0-9_]*$/.test(t)) throw new Error("table name"); return t; };
@@ -2184,10 +2188,12 @@ async function profileFacts(q, c, S, hasText) {
       count(*) FILTER (WHERE NOT coalesce(has_patient, false))::DOUBLE AS no_patient,
       count(*) FILTER (WHERE list_has_any(device_problem_codes,
         (SELECT list(CODE) FROM dict WHERE CODE_TYPE = 'device' AND STATUS IN ('archived_evs', 'archived_fda'))))::DOUBLE AS retired_codes,
-      CAST(min(date_received) AS VARCHAR) AS first, CAST(max(date_received) AS VARCHAR) AS last
+      CAST(min(date_received) AS VARCHAR) AS first, CAST(max(date_received) AS VARCHAR) AS last,
+      ${S.some(x => x[0] === "dup_unchecked") ? "count(*) FILTER (WHERE dup_unchecked)" : "0"}::DOUBLE AS dup_unchecked
     FROM y`);
   // version 1.0: counted without the filter "leave out possible duplicates", so that the number left out can be shown
   const dc = await dupCounts(q, { ...c, table: null, noDup: false }, S, hasText);
+  // dup_unchecked (2026-10-17, problem 109): the reports of the selection itself (with its filters) that the rule did not compare
   return { ...r, dup_reports: dc.dup_reports, dup_extra: dc.dup_extra };
 }
 
@@ -2630,7 +2636,7 @@ function compareRows(A, B, codes = [], terms = new Map()) {
 const SEL_COLUMNS = ["product_code", "report_key", "h", "year", "event", "date_received", "date_of_event", "report_source",
   "type_of_report", "summary_report", "reporter_occupation", "reporter_country", "reporter_state", "health_professional", "has_patient",
   "patient_age", "patient_sex", ...OUTCOMES.map(o => o[0]), "outcome_known", "date_of_manufacture", "implant_year", "manufacturer_group",
-  "device_problem_codes", "patient_problem_codes"];
+  "device_problem_codes", "patient_problem_codes", "dup_unchecked"];
 function selTableSql(name, c, S, hasText) {
   if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error("table name");
   const R = new Set(S.map(x => x[0]));
@@ -3073,9 +3079,17 @@ const DUP_RULE_TEXT = "the same product code, date of event, manufacturer and br
 /* Version 1.0 (point 1): the rule of the pipeline (duplicate_groups; manifest.duplicates). */
 const DUP_RULE_V10 = "the same product code, date of event, manufacturer and brand, the same patient age and sex or different report sources, "
   + "and narratives with a word overlap (Jaccard index of the word sets) of 0.8 or more";
+/* The cap of the duplicate rule of the data (manifest.duplicates.max_group), or null. */
+const dupMaxOf = m => { const v = m && m.duplicates && m.duplicates.max_group; return Number.isFinite(v) && v > 0 ? v : null; };
+/* Version 1.0 (2026-10-17, problem 109): the pipeline does not compare the reports of a key group (the same product code, date
+   of event, manufacturer and brand) of more than max reports (manifest.duplicates.max_group). */
+const dupCapText = max => `Reports in a group of more than ${NF.format(max)} reports with the same product code, date of event, manufacturer and brand `
+  + "were not compared, because there the same age and sex by chance and template narratives would join different patients; "
+  + "these reports are never possible duplicates.";
 function dupSentence(s) {  // s.dupNew: data of version 1.0; s.noDup: the reports after the first of their group are left out
   return s.dupNew ? `Possible duplicate reports were reports with ${DUP_RULE_V10}; `
       + (s.noDup ? "the reports after the first report of each group were left out of all analyses." : "they were flagged, not removed.")
+      + (s.dupMax && !(s.dq && s.dq.n) ? " " + dupCapText(s.dupMax) : "")  // with s.dq the sentence is in selectionLimits
     : `Possible duplicate reports had ${DUP_RULE_TEXT}; they were flagged, not removed.`;
 }
 /* Version 1.0 (review of 2026-10-16): the limitations of this selection that the page can measure. s.dq: { n, dup, nPatient,
@@ -3086,6 +3100,10 @@ function selectionLimits(s) {
   const out = [s.dupNew
     ? `${NF.format(d.dupExtra)} reports repeated an earlier report of the selection (possible duplicates after the first report of their group: ${DUP_RULE_V10}); `
       + (s.noDup ? `they were left out of all analyses (${NF.format(d.n)} reports remained).` : `they were flagged, not removed (${p(d.dupExtra, d.n)} of the ${NF.format(d.n)} reports).`)
+      + (s.dupMax ? " " + dupCapText(s.dupMax) : "")
+      + (d.dupUnchecked && s.dupMax ? ` ${NF.format(d.dupUnchecked)} reports of the selection (${p(d.dupUnchecked, d.n)}) were in groups of more than `
+        + `${NF.format(s.dupMax)} reports with the same product code, date of event, manufacturer and brand, which the rule does not compare; `
+        + "their possible duplicates are not known." : "")
     : `In this selection, ${NF.format(d.dup)} of the ${NF.format(d.n)} reports (${p(d.dup, d.n)}) were possible duplicates (${DUP_RULE_TEXT}); `
       + "they were flagged, not removed, and the signal analysis used all reports."];
   if (d.nPatient) out.push(`Patient sex was not given in ${p(d.sexNA, d.nPatient)} of the reports with a patient record.`);
@@ -3986,7 +4004,10 @@ RENDER.overview = async key => {
   $("ovDq").innerHTML = dq("Date of event missing", pf.no_event_date) + dq(`Summary reports${state.noSummary ? " (left out)" : ""}`, pf.summary_reports)
     // version 1.0: the reports after the first of a group of possible duplicates (left out by default)
     + (state.dupDim ? `<dt>Possible duplicates after the first report${state.noDup ? " (left out)" : ""}</dt><dd>${pctTxt(pf.dup_extra / (pf.n + (state.noDup ? pf.dup_extra : 0)))}</dd>`
-      : dq("Possible duplicate reports", pf.dup_reports)) + dq("Retired device problem codes", pf.retired_codes) + dq("No patient record", pf.no_patient);
+      : dq("Possible duplicate reports", pf.dup_reports))
+    // version 1.0 (problem 109): the reports that the duplicate rule did not compare (key groups of more than max_group reports)
+    + (state.dupDim && dupMaxOf(M) && pf.dup_unchecked ? `<dt title="${esc(dupCapText(dupMaxOf(M)))}">Not compared for duplicates (large key groups)</dt><dd>${pctTxt(pf.dup_unchecked / pf.n)}</dd>` : "")
+    + dq("Retired device problem codes", pf.retired_codes) + dq("No patient record", pf.no_patient);
 };
 
 /* ------------------------------------------------------------------ Signals */
@@ -4606,7 +4627,7 @@ function cohortDefinition() {
             "Dates are dates received by the FDA. Event types are as reported (death, injury, malfunction, other, no answer).",
             "Narrative filters: a report is included if any of its narrative texts contains any term (case-insensitive substring); left out if any text contains any excluded term.",
             "Random sample: the reports with the smallest fixed hash of the report key; the same data version gives the same sample.",
-            state.dupDim ? `Possible duplicates: ${DUP_RULE_V10}; dup_group = the report key of the first report of the group, dup_extra = a later report of the group${c.noDup ? " (left out of this selection)" : ""}.`
+            state.dupDim ? `Possible duplicates: ${DUP_RULE_V10}; dup_group = the report key of the first report of the group, dup_extra = a later report of the group${c.noDup ? " (left out of this selection)" : ""}.${dupMaxOf(M) ? ` ${dupCapText(dupMaxOf(M))} dup_unchecked = such a report.` : ""}`
               : `Possible duplicates: ${DUP_RULE_TEXT} (flagged, not removed).`],
     sql_where: cohortWhere(c, schema(), hasText()),
   };
@@ -4847,14 +4868,14 @@ function methodsSpec(res, n, dq = null) {  // dq: the measured limitations of th
     bg: res.bg ? { id: res.bg.id, label: res.bg.label, n_codes: res.bg.n_codes } : null,
     timelyText: tlLast ? timelyMethods() : "", dq,
     // version 1.0: duplicates (point 1), unit (point 3), administrative codes (point 4)
-    dupNew: state.dupDim, noDup: state.dupDim && state.noDup, unit: unitOf(state.kind), inclAdmin: state.inclAdmin, nAdmin: res.nAdmin || 0 };
+    dupNew: state.dupDim, noDup: state.dupDim && state.noDup, dupMax: state.dupDim ? dupMaxOf(M) : null, unit: unitOf(state.kind), inclAdmin: state.inclAdmin, nAdmin: res.nAdmin || 0 };
 }
 /* Version 1.0 (review of 2026-10-16): the numbers of selectionLimits, from the profile and the manufacturer groups of the selection. */
 async function limitsData() {
   if (!state.v06) return null;
   const c = await analysisCohort(), pf = await profile(), mm = await memo("mfr", () => manufacturerMix(q, c, schema(), hasText()));
   const named = mm.rows.filter(r => r.name), total = mm.rows.reduce((t, r) => t + r.n, 0);
-  return { n: pf.n, dup: pf.dup_reports, dupExtra: pf.dup_extra, nPatient: pf.n_patient, sexNA: pf.n_patient - pf.female - pf.male, retired: pf.retired_codes,
+  return { n: pf.n, dup: pf.dup_reports, dupExtra: pf.dup_extra, dupUnchecked: pf.dup_unchecked || 0, nPatient: pf.n_patient, sexNA: pf.n_patient - pf.female - pf.male, retired: pf.retired_codes,
            summary: pf.summary_reports, top: named.length ? { name: titleCase(named[0].name), share: total ? named[0].n / total : null } : null, hhi: mm.hhi };
 }
 function timelyMethods() {
@@ -4902,6 +4923,7 @@ async function analysisTables() {
     add("Sex: other or unknown", pf.sex_other, pf.n_patient, "reports with a patient record"); add("Sex: not given", pf.sex_missing, pf.n_patient, "reports with a patient record");
     add("Date of event missing", pf.no_event_date, pf.n, "all reports"); add("Summary reports", pf.summary_reports, pf.n, "all reports");
     if (state.dupDim) add(`Possible duplicates after the first report${state.noDup ? " (left out)" : ""}`, pf.dup_extra, pf.n + (state.noDup ? pf.dup_extra : 0), "all reports before this step");
+    if (state.dupDim && dupMaxOf(M)) add(`Not compared for duplicates (key group of more than ${dupMaxOf(M)} reports)`, pf.dup_unchecked || 0, pf.n, "all reports");
     else add("Possible duplicate reports", pf.dup_reports, pf.n, "all reports"); add("Retired device problem codes", pf.retired_codes, pf.n, "all reports");
     sheets.push({ name: "Characteristics", rows: ch });
     const as = await memo("agesex", () => ageSexTable(q, c, S, T));
